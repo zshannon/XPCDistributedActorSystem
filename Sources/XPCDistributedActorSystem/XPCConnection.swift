@@ -1,116 +1,93 @@
-import Foundation
 @preconcurrency import XPC
 
-// TODO: Code signature requirement verification
-// TODO: Test and implement automatic reconnect
+// TODO: Implement code signature requirement verification (xpc_connection_set_peer_code_signing_requirement)
+// TODO: Implement automatic reconnect
 
 actor XPCConnection
 {
-    enum Mode: Equatable, Sendable {
-        case anonymousListener
-        case daemonListener(service: String)
-        case client(service: String)
+    enum State {
+        case created
+        case active
+        case invalid
+        case interrupted
     }
-
+    
     enum Error: Swift.Error {
         case failedToCreateReply
-        case connectionMissing
+        case connectionNotReady
     }
     
-    typealias MessageReceivedHandler = @Sendable (isolated XPCConnection, XPCMessageWithObject) -> Void
-
-    static let main = XPCConnection()
-
-    private var connection: xpc_connection_t?
-    private var handler: MessageReceivedHandler?
-    private let isMainListener: Bool
+    private let connection: xpc_connection_t
+    private let actorSystem: XPCDistributedActorSystem
+    private var state: State = .created
     
-    init(mode: Mode)
+    init(incomingConnection connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem)
     {
-        self.isMainListener = false
+        self.init(connection: connection, actorSystem: actorSystem)
+    }
+    
+    init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem)
+    {
+        let connection = xpc_connection_create_mach_service(daemonServiceName, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_PRIVILEGED))
+        self.init(connection: connection, actorSystem: actorSystem)
+    }
+    
+    init(serviceName: String, actorSystem: XPCDistributedActorSystem)
+    {
+        let connection = xpc_connection_create(serviceName, nil)
+        self.init(connection: connection, actorSystem: actorSystem)
+    }
+    
+    private init(connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem)
+    {
+        self.connection = connection
+        self.actorSystem = actorSystem
         
-        switch mode {
-        case .anonymousListener:
-            self.connection = xpc_connection_create(nil, nil)
-        case .daemonListener(let service):
-            self.connection = xpc_connection_create_mach_service(service, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_LISTENER))
-        case .client(let service):
-            self.connection = xpc_connection_create(service, nil)
+        xpc_connection_set_event_handler(connection, handleEvent)
+        xpc_connection_activate(connection)
+        
+        Task {
+            await setState(.active)
         }
     }
     
-    /// Only to be used to create the `mainListener` once
-    private init()
+    private func setState(_ state: State)
     {
-        self.isMainListener = true
+        self.state = state
+    }
+
+    public func close()
+    {
+        xpc_connection_cancel(connection)
     }
     
-    nonisolated func setHandler(_ handler: sending @escaping MessageReceivedHandler)
+    nonisolated func handleEvent(_ event: xpc_object_t)
     {
         Task {
-            await registerHandlerAndSetOnConnection(handler)
-        }
-    }
-    
-    private func registerHandlerAndSetOnConnection(_ handler: sending @escaping MessageReceivedHandler)
-    {
-        self.handler = handler
-        self.setHandlerOnConnectionAndActivate()
-    }
-
-    private func setHandlerOnConnectionAndActivate()
-    {
-        guard let connection else { return }
-        xpc_connection_set_event_handler(connection, handleMessage)
-        xpc_connection_activate(connection)
-    }
-    
-    nonisolated func handleMessage(_ message: xpc_object_t)
-    {
-        Task { @Sendable in
-            guard let handler = await handler else { return }
-            await handler(self, XPCMessageWithObject(raw: message))
-        }
-    }
-        
-    nonisolated func startMainAndBlock() -> Never
-    {
-        guard self.isMainListener else {
-            fatalError("Tried to start the XPC springboard on a XPCConnection that isn't configured as `.mainListener`.")
-        }
-        
-        xpc_main { connection in
-            Task { @Sendable in
-                await XPCConnection.main.setConnection(connection)
+            if event === XPC_ERROR_CONNECTION_INVALID {
+                await self.setState(.invalid)
+                return
+            } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
+                await self.setState(.interrupted)
+                return
             }
-        }
-    }
 
-    func setConnection(_ connection: sending xpc_connection_t)
-    {
-        if let previousConnection = self.connection {
-            xpc_connection_cancel(previousConnection)
+            await actorSystem.handleIncomingInvocation(connection: self, message: XPCMessageWithObject(raw: event))
         }
-        
-        self.connection = connection
-        self.setHandlerOnConnectionAndActivate()
     }
 
     deinit
     {
-        guard let connection else { return }
         xpc_connection_cancel(connection)
     }
     
     func send<ObjectToSend, ObjectToReceive>(_ objectToSend: ObjectToSend, expect: ObjectToReceive.Type) async throws -> sending ObjectToReceive where ObjectToSend: Encodable, ObjectToReceive: Decodable
     {
-        guard let connection else {
-            throw Error.connectionMissing
-        }
-
+        guard state == .active else { throw Error.connectionNotReady }
+        
         let messageToSend = try XPCMessageWithObject(from: objectToSend)
         
-        let receivedMessage: xpc_object_t = try await withCheckedThrowingContinuation { continuation in
+        var receivedMessage: xpc_object_t = try await withCheckedThrowingContinuation { continuation in
             xpc_connection_send_message_with_reply(connection, messageToSend.raw, nil) { message in
                 continuation.resume(returning: message)
             }
@@ -123,21 +100,16 @@ actor XPCConnection
     
     func reply(with messageToSend: sending XPCMessageWithObject) throws
     {
-        guard let connection else {
-            throw Error.connectionMissing
-        }
+        guard state == .active else { throw Error.connectionNotReady }
 
         xpc_connection_send_message(connection, messageToSend.raw)
     }
     
     func reply(to request: XPCMessageWithObject) throws
     {
-        guard let connection else {
-            throw Error.connectionMissing
-        }
+        guard state == .active else { throw Error.connectionNotReady }
 
         guard let message = xpc_dictionary_create_reply(request.raw) else { throw Error.failedToCreateReply }
         xpc_connection_send_message(connection, message)
     }
 }
-

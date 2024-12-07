@@ -4,20 +4,22 @@ import Synchronization
 
 public final class XPCDistributedActorSystem : DistributedActorSystem
 {
-    public enum Mode: Equatable, Sendable {
-        case mainListener
-        case anonymousListener
-        case daemonListener(service: String)
-        case client(service: String)
+    public enum Mode {
+        case receivingConnections
+        case connectingToDaemon(serviceName: String)
+        case connectingToXPCService(serviceName: String)
     }
-
+    
     enum ProtocolError: Swift.Error, LocalizedError {
+        case noConnection
         case failedToFindValueInResponse
         case errorFromRemoteActor(String)
         case failedToFindActorForId(ActorID)
         
         var errorDescription: String? {
             switch self {
+            case .noConnection:
+                "No active connection has been found"
             case .failedToFindValueInResponse:
                 "Failed to find value in response"
             case .errorFromRemoteActor(let string):
@@ -34,7 +36,8 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     public typealias ResultHandler = InvocationResultHandler
     public typealias SerializationRequirement = any Codable
     
-    let xpcConnection: XPCConnection
+    @XPCActor private weak var xpcConnection: XPCConnection?
+    
     let liveActorStorage = LiveActorStorage()
 
     let nextActorId: Mutex<[ObjectIdentifier:Int]> = .init([:])
@@ -42,24 +45,22 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     public init(mode: Mode)
     {
         switch mode {
-        case .mainListener:
-            self.xpcConnection = XPCConnection.main
-        case .anonymousListener:
-            self.xpcConnection = XPCConnection(mode: .anonymousListener)
-        case .daemonListener(let service):
-            self.xpcConnection = XPCConnection(mode: .daemonListener(service: service))
-        case .client(let service):
-            self.xpcConnection = XPCConnection(mode: .client(service: service))
+        case .receivingConnections:
+            break
+        case .connectingToDaemon(serviceName: let serviceName):
+            self.xpcConnection = XPCConnection(daemonServiceName: serviceName, actorSystem: self)
+        case .connectingToXPCService(serviceName: let serviceName):
+            self.xpcConnection = XPCConnection(serviceName: serviceName, actorSystem: self)
         }
-
-        self.xpcConnection.setHandler(handleIncomingInvocation)
-    }
-
-    public func startXpcMainAndBlock() -> Never
-    {
-        self.xpcConnection.startMainAndBlock()
     }
     
+    nonisolated func setConnection(_ connection: XPCConnection?)
+    {
+        Task { @XPCActor in
+            self.xpcConnection = connection
+        }
+    }
+
     func handleIncomingInvocation(connection: XPCConnection, message: XPCMessageWithObject)
     {
         Task {
@@ -93,8 +94,10 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     
     public func remoteCall<Act, Err, Res>(on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder, throwing: Err.Type, returning: Res.Type) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable
     {
+        guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
+        
         let request = InvocationRequest(actorId: actor.id, target: target.identifier, invocation: invocation)
-        let response = try await self.xpcConnection.send(request, expect: InvocationResponse<Res>.self)
+        let response = try await xpcConnection.send(request, expect: InvocationResponse<Res>.self)
         
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
@@ -109,8 +112,10 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     
     public func remoteCallVoid<Act, Err>(on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder, throwing: Err.Type) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error 
     {
+        guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
+
         let request = InvocationRequest(actorId: actor.id, target: target.identifier, invocation: invocation)
-        let response = try await self.xpcConnection.send(request, expect: InvocationResponse<Never>.self)
+        let response = try await xpcConnection.send(request, expect: InvocationResponse<Never>.self)
 
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
