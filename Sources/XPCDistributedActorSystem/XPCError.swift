@@ -9,6 +9,8 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
         case connectionInvalid
         case terminationImminent
         case codeSignatureCheckFailed
+        case unexpectedMessageType
+        case failedToGetDataFromXPCDictionary
         case unknown
     }
     
