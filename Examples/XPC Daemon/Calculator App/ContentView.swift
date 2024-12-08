@@ -95,6 +95,9 @@ struct ContentView: View
 
         if service.status == .enabled {
             configureXPCService()
+        } else {
+            self.xpc = nil
+            self.calculator = nil
         }
     }
     
