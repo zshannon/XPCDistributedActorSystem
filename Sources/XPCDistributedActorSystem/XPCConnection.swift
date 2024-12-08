@@ -72,7 +72,7 @@ actor XPCConnection
                 return
             }
 
-            await actorSystem.handleIncomingInvocation(connection: self, message: XPCMessageWithObject(raw: event))
+            actorSystem.handleIncomingInvocation(connection: self, message: XPCMessageWithObject(raw: event))
         }
     }
 
@@ -87,7 +87,7 @@ actor XPCConnection
         
         let messageToSend = try XPCMessageWithObject(from: objectToSend)
         
-        var receivedMessage: xpc_object_t = try await withCheckedThrowingContinuation { continuation in
+        let receivedMessage: xpc_object_t = try await withCheckedThrowingContinuation { continuation in
             xpc_connection_send_message_with_reply(connection, messageToSend.raw, nil) { message in
                 continuation.resume(returning: message)
             }

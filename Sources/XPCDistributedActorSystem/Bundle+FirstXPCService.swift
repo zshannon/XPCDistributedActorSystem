@@ -2,7 +2,7 @@ import Foundation
 
 public extension Bundle
 {
-    public func firstXPCServiceIdentifier() -> String?
+    func firstXPCServiceIdentifier() -> String?
     {
         let xpcPath = self.bundleURL.appending(components: "Contents", "XPCServices", directoryHint: .isDirectory)
                 

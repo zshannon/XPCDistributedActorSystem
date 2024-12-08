@@ -36,7 +36,7 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     public typealias ResultHandler = InvocationResultHandler
     public typealias SerializationRequirement = any Codable
     
-    @XPCActor private weak var xpcConnection: XPCConnection?
+    @XPCActor private var xpcConnection: XPCConnection?
     
     let liveActorStorage = LiveActorStorage()
 
