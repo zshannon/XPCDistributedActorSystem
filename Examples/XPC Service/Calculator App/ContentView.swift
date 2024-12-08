@@ -1,6 +1,5 @@
 import SwiftUI
 import XPCDistributedActorSystem
-import CalculatorXPCService
 import Calculator
 
 struct ContentView: View
@@ -42,7 +41,7 @@ struct ContentView: View
         
         print("Found XPC service in bundle:", serviceIdentifier)
         
-        let xpc = XPCDistributedActorSystem(mode: .client(service: serviceIdentifier))
+        let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: serviceIdentifier))
         self.xpc = xpc
         
         do {

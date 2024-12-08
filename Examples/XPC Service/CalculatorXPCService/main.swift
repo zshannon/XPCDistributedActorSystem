@@ -1,6 +1,7 @@
 import XPCDistributedActorSystem
 import Calculator
 
-let system = XPCDistributedActorSystem(mode: .mainListener)
+let system = XPCDistributedActorSystem(mode: .receivingConnections)
 let calculator = Calculator(actorSystem: system)
-system.startXpcMainAndBlock()
+let listener = try XPCServiceListener(actorSystem: system)
+listener.run()
