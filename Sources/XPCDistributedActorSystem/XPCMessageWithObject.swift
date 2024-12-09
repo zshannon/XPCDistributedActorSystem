@@ -47,13 +47,13 @@ final class XPCMessageWithObject: Sendable
         
         guard messageType == XPC_TYPE_DICTIONARY else {
             print("Unexpected message type:", messageType, String(cString: xpc_type_get_name(messageType)))
-            throw XPCError.Category.unexpectedMessageType
+            throw XPCError(.unexpectedMessageType)
         }
         
         var dataLength = 0
         
         guard let dataPointer: UnsafeRawPointer = xpc_dictionary_get_data(raw, "data", &dataLength) else {
-            throw XPCError.Category.failedToGetDataFromXPCDictionary
+            throw XPCError(.failedToGetDataFromXPCDictionary)
         }
         
         let data = Data(bytes: dataPointer, count: dataLength)

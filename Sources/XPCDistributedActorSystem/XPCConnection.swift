@@ -9,14 +9,8 @@ actor XPCConnection
         case created
         case active
         case invalid
-        case interrupted
     }
-    
-    enum Error: Swift.Error {
-        case failedToCreateReply
-        case connectionNotReady
-    }
-    
+        
     private let connection: xpc_connection_t
     private let actorSystem: XPCDistributedActorSystem
     private var state: State = .created
@@ -68,7 +62,7 @@ actor XPCConnection
                 await self.setState(.invalid)
                 return
             } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
-                await self.setState(.interrupted)
+                // Interruptions can happen if, for example, the target process exits. However, daemons/agents are usually automatically restarted and the connection will work fine after that without having to recreate or reactivate it.
                 return
             }
 
@@ -83,7 +77,7 @@ actor XPCConnection
     
     func send<ObjectToSend, ObjectToReceive>(_ objectToSend: ObjectToSend, expect: ObjectToReceive.Type) async throws -> sending ObjectToReceive where ObjectToSend: Encodable, ObjectToReceive: Decodable
     {
-        guard state == .active else { throw Error.connectionNotReady }
+        guard state == .active else { throw XPCError(.connectionNotReady) }
         
         let messageToSend = try XPCMessageWithObject(from: objectToSend)
         
@@ -100,16 +94,16 @@ actor XPCConnection
     
     func reply(with messageToSend: sending XPCMessageWithObject) throws
     {
-        guard state == .active else { throw Error.connectionNotReady }
+        guard state == .active else { throw XPCError(.connectionNotReady) }
 
         xpc_connection_send_message(connection, messageToSend.raw)
     }
     
     func reply(to request: XPCMessageWithObject) throws
     {
-        guard state == .active else { throw Error.connectionNotReady }
+        guard state == .active else { throw XPCError(.connectionNotReady) }
 
-        guard let message = xpc_dictionary_create_reply(request.raw) else { throw Error.failedToCreateReply }
+        guard let message = xpc_dictionary_create_reply(request.raw) else { throw XPCError(.failedToCreateReply) }
         xpc_connection_send_message(connection, message)
     }
 }

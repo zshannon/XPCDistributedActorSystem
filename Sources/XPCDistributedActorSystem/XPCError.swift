@@ -3,7 +3,7 @@ import XPC
 
 public struct XPCError: Error, Codable, Sendable, LocalizedError
 {
-    public enum Category: Error, Codable, Sendable
+    public enum Category: Codable, Sendable
     {
         case connectionInterrupted
         case connectionInvalid
@@ -11,11 +11,46 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
         case codeSignatureCheckFailed
         case unexpectedMessageType
         case failedToGetDataFromXPCDictionary
+        case failedToCreateReply
         case unknown
+        case connectionNotReady
     }
     
     let category: Category
-    public let errorDescription: String?
+    public let nativeErrorDescription: String?
+    
+    public var errorDescription: String? {
+        if let nativeErrorDescription {
+            return nativeErrorDescription
+        }
+        
+        return switch category {
+        case .connectionInterrupted:
+            "Connection interrupted"
+        case .connectionInvalid:
+            "Connection invalid"
+        case .terminationImminent:
+            "Termination imminent"
+        case .codeSignatureCheckFailed:
+            "Code signature check failed"
+        case .unexpectedMessageType:
+            "Unexpected message type"
+        case .failedToGetDataFromXPCDictionary:
+            "Failed to get data from XPC dictionary"
+        case .failedToCreateReply:
+            "Failed to create reply"
+        case .unknown:
+            "Unknown error"
+        case .connectionNotReady:
+            "Connection not ready"
+        }
+    }
+    
+    init(_ category: Category)
+    {
+        self.category = category
+        self.nativeErrorDescription = nil
+    }
 
     init(error: xpc_object_t)
     {
@@ -25,7 +60,7 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
             nil
         }
         
-        self.errorDescription = description
+        self.nativeErrorDescription = description
         
         if error === XPC_ERROR_CONNECTION_INTERRUPTED {
             self.category = .connectionInterrupted
