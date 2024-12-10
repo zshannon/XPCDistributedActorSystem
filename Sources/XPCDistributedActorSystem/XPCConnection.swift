@@ -1,7 +1,6 @@
 @preconcurrency import XPC
 
 // TODO: Implement code signature requirement verification (xpc_connection_set_peer_code_signing_requirement)
-// TODO: Implement automatic reconnect
 
 actor XPCConnection
 {
