@@ -1,10 +1,12 @@
 # XPCDistributedActorSystem
 
-An _experimental_ [DistributedActorSystem](https://developer.apple.com/documentation/distributed/distributedactorsystem) for Swift that uses XPC as a transport layer.
+An _experimental_ [DistributedActorSystem](https://developer.apple.com/documentation/distributed/distributedactorsystem) for Swift 6 that uses XPC as a transport layer.
 
 # Supported platforms
 
 Works on macOS only (because XPC support on iOS is extremely limited).
+
+Designed for macOS 15, but might work on earlier versions.
 
 # Known issues
 
