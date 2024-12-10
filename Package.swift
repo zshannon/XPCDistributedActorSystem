@@ -7,7 +7,6 @@ let package = Package(
     name: "XPCDistributedActorSystem",
     platforms: [
         .macOS(.v15),
-        .iOS(.v18),
     ],
     products: [
         .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"]),
