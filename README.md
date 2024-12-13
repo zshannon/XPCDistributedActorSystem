@@ -67,4 +67,4 @@ The easiest way is to just put the distributed actor and all types required for 
 
 # Contributing
 
-Feel free to fork (see [license](LICENSE)) or contribute.
+Feel free to fork (see [license](LICENSE.txt)) or contribute.
