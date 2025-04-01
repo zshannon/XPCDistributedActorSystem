@@ -123,7 +123,16 @@ struct ContentView: View
     
     func configureXPCService()
     {
-        let xpc = XPCDistributedActorSystem(mode: .connectingToDaemon(serviceName: daemonXPCServiceIdentifier))
+        let codeSigningRequirement: CodeSigningRequirement
+        
+        do {
+            codeSigningRequirement = try CodeSigningRequirement.sameTeam
+        } catch {
+            print("Failed to set up code signing requirement:", error.localizedDescription)
+            return
+        }
+        
+        let xpc = XPCDistributedActorSystem(mode: .connectingToDaemon(serviceName: daemonXPCServiceIdentifier), codeSigningRequirement: codeSigningRequirement)
         self.xpc = xpc
         
         do {

@@ -38,10 +38,19 @@ struct ContentView: View
             print("Failed to find a valid XPC service in the app's bundle.")
             return
         }
-        
+
         print("Found XPC service in bundle:", serviceIdentifier)
+
+        let codeSigningRequirement: CodeSigningRequirement
         
-        let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: serviceIdentifier))
+        do {
+            codeSigningRequirement = try CodeSigningRequirement.sameTeam
+        } catch {
+            print("Failed to set up code signing requirement:", error.localizedDescription)
+            return
+        }
+
+        let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: serviceIdentifier), codeSigningRequirement: codeSigningRequirement)
         self.xpc = xpc
         
         do {

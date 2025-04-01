@@ -29,7 +29,7 @@ public actor XPCServiceListener
         xpc_main { connection in
             guard let listener = XPCServiceListener.shared else { return }
             Task {
-                let connection = XPCConnection(incomingConnection: connection, actorSystem: listener.actorSystem)
+                let connection = XPCConnection(incomingConnection: connection, actorSystem: listener.actorSystem, codeSigningRequirement: listener.actorSystem.codeSigningRequirement)
                 await listener.setConnection(connection)
             }
         }

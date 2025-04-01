@@ -10,7 +10,6 @@ Designed for macOS 15, but might work on earlier versions.
 
 # Known issues
 
-* ⚠️ Lacks XPC security mechanisms
 * ⚠️ Barely tested
 * Actor ID assignment needs improvement
 
@@ -33,7 +32,7 @@ import XPCDistributedActorSystem
 import Calculator
 
 // Set up the system
-let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: yourServiceName))
+let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: yourServiceName), codeSigningRequirement: try .sameTeam)
 let calculator = try Calculator.resolve(id: .init(1), using: xpc)
 
 // Run function in the XPC service and print the result
@@ -48,7 +47,7 @@ print(result)
 import XPCDistributedActorSystem
 import Calculator
 
-let system = XPCDistributedActorSystem(mode: .receivingConnections)
+let system = XPCDistributedActorSystem(mode: .receivingConnections, codeSigningRequirement: try .sameTeam)
 let calculator = Calculator(actorSystem: system)
 let listener = try XPCServiceListener(actorSystem: system)
 listener.run()

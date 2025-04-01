@@ -39,18 +39,20 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     @XPCActor private var xpcConnection: XPCConnection?
     
     let liveActorStorage = LiveActorStorage()
-
     let nextActorId: Mutex<[ObjectIdentifier:Int]> = .init([:])
+    let codeSigningRequirement: CodeSigningRequirement?
     
-    public init(mode: Mode)
+    public init(mode: Mode, codeSigningRequirement: CodeSigningRequirement?)
     {
+        self.codeSigningRequirement = codeSigningRequirement
+        
         switch mode {
         case .receivingConnections:
             break
         case .connectingToDaemon(serviceName: let serviceName):
-            self.xpcConnection = XPCConnection(daemonServiceName: serviceName, actorSystem: self)
+            self.xpcConnection = XPCConnection(daemonServiceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
         case .connectingToXPCService(serviceName: let serviceName):
-            self.xpcConnection = XPCConnection(serviceName: serviceName, actorSystem: self)
+            self.xpcConnection = XPCConnection(serviceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
         }
     }
     

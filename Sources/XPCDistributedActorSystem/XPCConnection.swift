@@ -1,9 +1,7 @@
 @preconcurrency import XPC
 
-// TODO: Implement code signature requirement verification (xpc_connection_set_peer_code_signing_requirement)
-
 actor XPCConnection
-{
+{   
     enum State {
         case created
         case active
@@ -14,28 +12,39 @@ actor XPCConnection
     private let actorSystem: XPCDistributedActorSystem
     private var state: State = .created
     
-    init(incomingConnection connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem)
+    init(incomingConnection connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem, codeSigningRequirement: CodeSigningRequirement?)
     {
-        self.init(connection: connection, actorSystem: actorSystem)
+        self.init(connection: connection, actorSystem: actorSystem, codeSigningRequirement: codeSigningRequirement)
     }
     
-    init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem)
+    init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem, codeSigningRequirement: CodeSigningRequirement?)
     {
         let connection = xpc_connection_create_mach_service(daemonServiceName, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_PRIVILEGED))
-        self.init(connection: connection, actorSystem: actorSystem)
+        self.init(connection: connection, actorSystem: actorSystem, codeSigningRequirement: codeSigningRequirement)
     }
     
-    init(serviceName: String, actorSystem: XPCDistributedActorSystem)
+    init(serviceName: String, actorSystem: XPCDistributedActorSystem, codeSigningRequirement: CodeSigningRequirement?)
     {
         let connection = xpc_connection_create(serviceName, nil)
-        self.init(connection: connection, actorSystem: actorSystem)
+        self.init(connection: connection, actorSystem: actorSystem, codeSigningRequirement: codeSigningRequirement)
     }
     
-    private init(connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem)
+    private init(connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem, codeSigningRequirement: CodeSigningRequirement?)
     {
         self.connection = connection
         self.actorSystem = actorSystem
         
+        if let codeSigningRequirement {
+            let codeSigningRequirementStatus = xpc_connection_set_peer_code_signing_requirement(connection, codeSigningRequirement.requirement)
+            guard codeSigningRequirementStatus == 0 else {
+                print("Unexpectedly failed to set up code signing requirement: \(codeSigningRequirement.requirement)")
+                Task {
+                    await setState(.invalid)
+                }
+                return
+            }
+        }
+
         xpc_connection_set_event_handler(connection, handleEvent)
         xpc_connection_activate(connection)
         

@@ -8,12 +8,14 @@ public actor XPCDaemonListener
     
     public init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem) throws
     {
+        let codeSigningRequirement = try CodeSigningRequirement.sameTeam
+        
         self.actorSystem = actorSystem
         let listener = xpc_connection_create_mach_service(daemonServiceName, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_LISTENER))
         self.listener = listener
         xpc_connection_set_event_handler(listener) { event in
             // TODO: Check if the event is an error or an incoming connection
-            let connection = XPCConnection(incomingConnection: event, actorSystem: actorSystem)
+            let connection = XPCConnection(incomingConnection: event, actorSystem: actorSystem, codeSigningRequirement: codeSigningRequirement)
             Task {
                 await self.setConnection(connection)
             }
