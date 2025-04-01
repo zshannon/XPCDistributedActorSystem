@@ -50,7 +50,7 @@ struct ContentView: View
                                 }
                                 updateDaemonStatus()
                             }
-                            .disabled(service.status != .notRegistered)
+                            .disabled(service.status != .notRegistered && service.status != .notFound)
                             Button("Uninstall Launch Daemon") {
                                 do {
                                     try service.unregister()
