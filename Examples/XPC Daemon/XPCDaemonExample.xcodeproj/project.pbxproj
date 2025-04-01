@@ -7,29 +7,30 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		ADBB9AC82CD3ECF400BEACA6 /* libCalculator.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ADBB9ABA2CD3ECD100BEACA6 /* libCalculator.a */; };
-		ADBD36FC2CF648EF00A14C26 /* XPCDistributedActorSystem in Frameworks */ = {isa = PBXBuildFile; productRef = ADBD36FB2CF648EF00A14C26 /* XPCDistributedActorSystem */; };
+		AD189A8A2D9C31AD008B987F /* libCalculator.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = AD189A842D9C317D008B987F /* libCalculator.dylib */; };
+		AD189A8B2D9C31AD008B987F /* libCalculator.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AD189A842D9C317D008B987F /* libCalculator.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		AD189A8E2D9C31B5008B987F /* libCalculator.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = AD189A842D9C317D008B987F /* libCalculator.dylib */; };
+		AD189AA22D9C31F1008B987F /* XPCDistributedActorSystem in Frameworks */ = {isa = PBXBuildFile; productRef = AD189AA12D9C31F1008B987F /* XPCDistributedActorSystem */; };
 		ADBD377A2D02484300A14C26 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBD37782D02484100A14C26 /* Shared.swift */; };
 		ADBD377B2D02484800A14C26 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBD37782D02484100A14C26 /* Shared.swift */; };
-		ADBD37892D03BB8C00A14C26 /* libCalculator.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ADBB9ABA2CD3ECD100BEACA6 /* libCalculator.a */; };
 		ADBD378D2D03BC7700A14C26 /* com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist in Resources */ = {isa = PBXBuildFile; fileRef = ADBD378C2D03BC7700A14C26 /* com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist */; };
 		ADBD37912D03BD0000A14C26 /* com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist in Copy LaunchDaemon .plist */ = {isa = PBXBuildFile; fileRef = ADBD378C2D03BC7700A14C26 /* com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		ADBD37952D03BD3700A14C26 /* CalculatorDaemon.app in Copy Daemon */ = {isa = PBXBuildFile; fileRef = ADBD37402D02471400A14C26 /* CalculatorDaemon.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		ADBB9AC92CD3ECF400BEACA6 /* PBXContainerItemProxy */ = {
+		AD189A8C2D9C31AD008B987F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AD8C4B5D2CBE9EEB0093E531 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = ADBB9AB92CD3ECD100BEACA6;
+			remoteGlobalIDString = AD189A832D9C317D008B987F;
 			remoteInfo = Calculator;
 		};
-		ADBD378A2D03BB8C00A14C26 /* PBXContainerItemProxy */ = {
+		AD189A902D9C31B5008B987F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AD8C4B5D2CBE9EEB0093E531 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = ADBB9AB92CD3ECD100BEACA6;
+			remoteGlobalIDString = AD189A832D9C317D008B987F;
 			remoteInfo = Calculator;
 		};
 		ADBD37922D03BD2400A14C26 /* PBXContainerItemProxy */ = {
@@ -48,6 +49,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				AD189A8B2D9C31AD008B987F /* libCalculator.dylib in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -77,34 +79,44 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AD189A842D9C317D008B987F /* libCalculator.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; path = libCalculator.dylib; sourceTree = BUILT_PRODUCTS_DIR; };
 		ADBB9A7D2CD3EB5000BEACA6 /* Calculator App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Calculator App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		ADBB9ABA2CD3ECD100BEACA6 /* libCalculator.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libCalculator.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		ADBD36C12CF647A100A14C26 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		ADBD37402D02471400A14C26 /* CalculatorDaemon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CalculatorDaemon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ADBD37782D02484100A14C26 /* Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared.swift; sourceTree = "<group>"; };
 		ADBD378C2D03BC7700A14C26 /* com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AD189A892D9C31A6008B987F /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Calculator.swift,
+			);
+			target = AD189A832D9C317D008B987F /* Calculator */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		ADBB9A7E2CD3EB5000BEACA6 /* Calculator App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "Calculator App"; sourceTree = "<group>"; };
-		ADBB9ABB2CD3ECD100BEACA6 /* Calculator */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Calculator; sourceTree = "<group>"; };
+		ADBB9ABB2CD3ECD100BEACA6 /* Calculator */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (AD189A892D9C31A6008B987F /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Calculator; sourceTree = "<group>"; };
 		ADBD37412D02471400A14C26 /* CalculatorDaemon */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = CalculatorDaemon; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		AD189A822D9C317D008B987F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD189AA22D9C31F1008B987F /* XPCDistributedActorSystem in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		ADBB9A7A2CD3EB5000BEACA6 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ADBB9AC82CD3ECF400BEACA6 /* libCalculator.a in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		ADBB9AB82CD3ECD100BEACA6 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				ADBD36FC2CF648EF00A14C26 /* XPCDistributedActorSystem in Frameworks */,
+				AD189A8A2D9C31AD008B987F /* libCalculator.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,7 +124,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ADBD37892D03BB8C00A14C26 /* libCalculator.a in Frameworks */,
+				AD189A8E2D9C31B5008B987F /* libCalculator.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,8 +149,8 @@
 			isa = PBXGroup;
 			children = (
 				ADBB9A7D2CD3EB5000BEACA6 /* Calculator App.app */,
-				ADBB9ABA2CD3ECD100BEACA6 /* libCalculator.a */,
 				ADBD37402D02471400A14C26 /* CalculatorDaemon.app */,
+				AD189A842D9C317D008B987F /* libCalculator.dylib */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,7 +165,7 @@
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
-		ADBB9AB62CD3ECD100BEACA6 /* Headers */ = {
+		AD189A802D9C317D008B987F /* Headers */ = {
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -163,6 +175,26 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		AD189A832D9C317D008B987F /* Calculator */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD189A852D9C317D008B987F /* Build configuration list for PBXNativeTarget "Calculator" */;
+			buildPhases = (
+				AD189A802D9C317D008B987F /* Headers */,
+				AD189A812D9C317D008B987F /* Sources */,
+				AD189A822D9C317D008B987F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Calculator;
+			packageProductDependencies = (
+				AD189AA12D9C31F1008B987F /* XPCDistributedActorSystem */,
+			);
+			productName = Calculator;
+			productReference = AD189A842D9C317D008B987F /* libCalculator.dylib */;
+			productType = "com.apple.product-type.library.dynamic";
+		};
 		ADBB9A7C2CD3EB5000BEACA6 /* Calculator App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = ADBB9A892CD3EB5100BEACA6 /* Build configuration list for PBXNativeTarget "Calculator App" */;
@@ -178,7 +210,7 @@
 			);
 			dependencies = (
 				ADBD37932D03BD2400A14C26 /* PBXTargetDependency */,
-				ADBB9ACA2CD3ECF400BEACA6 /* PBXTargetDependency */,
+				AD189A8D2D9C31AD008B987F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				ADBB9A7E2CD3EB5000BEACA6 /* Calculator App */,
@@ -189,29 +221,6 @@
 			productName = CalculatorUI;
 			productReference = ADBB9A7D2CD3EB5000BEACA6 /* Calculator App.app */;
 			productType = "com.apple.product-type.application";
-		};
-		ADBB9AB92CD3ECD100BEACA6 /* Calculator */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = ADBB9AC02CD3ECD100BEACA6 /* Build configuration list for PBXNativeTarget "Calculator" */;
-			buildPhases = (
-				ADBB9AB62CD3ECD100BEACA6 /* Headers */,
-				ADBB9AB72CD3ECD100BEACA6 /* Sources */,
-				ADBB9AB82CD3ECD100BEACA6 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				ADBB9ABB2CD3ECD100BEACA6 /* Calculator */,
-			);
-			name = Calculator;
-			packageProductDependencies = (
-				ADBD36FB2CF648EF00A14C26 /* XPCDistributedActorSystem */,
-			);
-			productName = Calculator;
-			productReference = ADBB9ABA2CD3ECD100BEACA6 /* libCalculator.a */;
-			productType = "com.apple.product-type.library.static";
 		};
 		ADBD373F2D02471400A14C26 /* CalculatorDaemon */ = {
 			isa = PBXNativeTarget;
@@ -224,7 +233,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				ADBD378B2D03BB8C00A14C26 /* PBXTargetDependency */,
+				AD189A912D9C31B5008B987F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				ADBD37412D02471400A14C26 /* CalculatorDaemon */,
@@ -246,12 +255,11 @@
 				LastSwiftUpdateCheck = 1610;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					AD189A832D9C317D008B987F = {
+						CreatedOnToolsVersion = 16.3;
+					};
 					ADBB9A7C2CD3EB5000BEACA6 = {
 						CreatedOnToolsVersion = 16.1;
-					};
-					ADBB9AB92CD3ECD100BEACA6 = {
-						CreatedOnToolsVersion = 16.1;
-						LastSwiftMigration = 1610;
 					};
 					ADBD373F2D02471400A14C26 = {
 						CreatedOnToolsVersion = 16.1;
@@ -275,8 +283,8 @@
 			projectRoot = "";
 			targets = (
 				ADBB9A7C2CD3EB5000BEACA6 /* Calculator App */,
-				ADBB9AB92CD3ECD100BEACA6 /* Calculator */,
 				ADBD373F2D02471400A14C26 /* CalculatorDaemon */,
+				AD189A832D9C317D008B987F /* Calculator */,
 			);
 		};
 /* End PBXProject section */
@@ -300,18 +308,18 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		AD189A812D9C317D008B987F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		ADBB9A792CD3EB5000BEACA6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				ADBD377B2D02484800A14C26 /* Shared.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		ADBB9AB72CD3ECD100BEACA6 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -326,15 +334,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		ADBB9ACA2CD3ECF400BEACA6 /* PBXTargetDependency */ = {
+		AD189A8D2D9C31AD008B987F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = ADBB9AB92CD3ECD100BEACA6 /* Calculator */;
-			targetProxy = ADBB9AC92CD3ECF400BEACA6 /* PBXContainerItemProxy */;
+			target = AD189A832D9C317D008B987F /* Calculator */;
+			targetProxy = AD189A8C2D9C31AD008B987F /* PBXContainerItemProxy */;
 		};
-		ADBD378B2D03BB8C00A14C26 /* PBXTargetDependency */ = {
+		AD189A912D9C31B5008B987F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = ADBB9AB92CD3ECD100BEACA6 /* Calculator */;
-			targetProxy = ADBD378A2D03BB8C00A14C26 /* PBXContainerItemProxy */;
+			target = AD189A832D9C317D008B987F /* Calculator */;
+			targetProxy = AD189A902D9C31B5008B987F /* PBXContainerItemProxy */;
 		};
 		ADBD37932D03BD2400A14C26 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -344,6 +352,34 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		AD189A862D9C317D008B987F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				EXECUTABLE_PREFIX = lib;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AD189A872D9C317D008B987F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				EXECUTABLE_PREFIX = lib;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		AD8C4B6E2CBE9EEB0093E531 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = ADBD36C12CF647A100A14C26 /* Config.xcconfig */;
@@ -518,33 +554,6 @@
 			};
 			name = Release;
 		};
-		ADBB9AC12CD3ECD100BEACA6 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_STYLE = Automatic;
-				EXECUTABLE_PREFIX = lib;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 6.0;
-			};
-			name = Debug;
-		};
-		ADBB9AC22CD3ECD100BEACA6 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_STYLE = Automatic;
-				EXECUTABLE_PREFIX = lib;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Release;
-		};
 		ADBD374D2D02471500A14C26 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -602,6 +611,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		AD189A852D9C317D008B987F /* Build configuration list for PBXNativeTarget "Calculator" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AD189A862D9C317D008B987F /* Debug */,
+				AD189A872D9C317D008B987F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		AD8C4B602CBE9EEB0093E531 /* Build configuration list for PBXProject "XPCDaemonExample" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -616,15 +634,6 @@
 			buildConfigurations = (
 				ADBB9A8A2CD3EB5100BEACA6 /* Debug */,
 				ADBB9A8B2CD3EB5100BEACA6 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		ADBB9AC02CD3ECD100BEACA6 /* Build configuration list for PBXNativeTarget "Calculator" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				ADBB9AC12CD3ECD100BEACA6 /* Debug */,
-				ADBB9AC22CD3ECD100BEACA6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -648,7 +657,7 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		ADBD36FB2CF648EF00A14C26 /* XPCDistributedActorSystem */ = {
+		AD189AA12D9C31F1008B987F /* XPCDistributedActorSystem */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = ADBD36FA2CF648D600A14C26 /* XCLocalSwiftPackageReference "../../../XPCDistributedActorSystem" */;
 			productName = XPCDistributedActorSystem;
