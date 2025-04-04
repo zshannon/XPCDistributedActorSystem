@@ -5,7 +5,8 @@ actor XPCConnection
     enum State {
         case created
         case active
-        case invalid
+        case notFound
+        case invalidCodeSigning
     }
         
     private let connection: xpc_connection_t
@@ -37,9 +38,8 @@ actor XPCConnection
         if let codeSigningRequirement {
             let codeSigningRequirementStatus = xpc_connection_set_peer_code_signing_requirement(connection, codeSigningRequirement.requirement)
             guard codeSigningRequirementStatus == 0 else {
-                print("Unexpectedly failed to set up code signing requirement: \(codeSigningRequirement.requirement)")
                 Task {
-                    await setState(.invalid)
+                    await setState(.invalidCodeSigning)
                 }
                 return
             }
@@ -66,8 +66,11 @@ actor XPCConnection
     nonisolated func handleEvent(_ event: xpc_object_t)
     {
         Task {
-            if event === XPC_ERROR_CONNECTION_INVALID {
-                await self.setState(.invalid)
+            if event === XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT {
+                await self.setState(.invalidCodeSigning)
+                return
+            } else if event === XPC_ERROR_CONNECTION_INVALID {
+                await self.setState(.notFound)
                 return
             } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
                 // Interruptions can happen if, for example, the target process exits. However, daemons/agents are usually automatically restarted and the connection will work fine after that without having to recreate or reactivate it.

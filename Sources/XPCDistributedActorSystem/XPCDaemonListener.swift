@@ -11,16 +11,23 @@ public actor XPCDaemonListener
         self.actorSystem = actorSystem
         let listener = xpc_connection_create_mach_service(daemonServiceName, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_LISTENER))
         self.listener = listener
+
         xpc_connection_set_event_handler(listener) { event in
-            // TODO: Check if the event is an error or an incoming connection
+            if event === XPC_ERROR_CONNECTION_INVALID {
+                print("XPCDaemonListener received XPC_ERROR_CONNECTION_INVALID")
+                // TODO: Invalidate listener?
+                return
+            } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
+                print("XPCDaemonListener received XPC_ERROR_CONNECTION_INTERRUPTED")
+                return
+            }
+            
             let connection = XPCConnection(incomingConnection: event, actorSystem: actorSystem, codeSigningRequirement: actorSystem.codeSigningRequirement)
             Task {
                 await self.setConnection(connection)
             }
         }
         xpc_connection_activate(listener)
-        
-        // TODO: Handle errors if the listener fails to be created
     }
     
     func setConnection(_ connection: XPCConnection) async
