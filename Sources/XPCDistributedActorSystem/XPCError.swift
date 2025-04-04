@@ -32,7 +32,7 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
         case .terminationImminent:
             "Termination imminent"
         case .codeSignatureCheckFailed:
-            "Code signature check failed"
+            "Code signature check failed (or version/artifact mismatch)"
         case .unexpectedMessageType:
             "Unexpected message type"
         case .failedToGetDataFromXPCDictionary:
@@ -68,6 +68,8 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
             self.category = .connectionInvalid
         } else if error === XPC_ERROR_TERMINATION_IMMINENT {
             self.category = .terminationImminent
+        } else if error === XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT {
+            self.category = .codeSignatureCheckFailed
         } else {
             self.category = .unknown
         }
