@@ -4,10 +4,25 @@ import Synchronization
 
 public final class XPCDistributedActorSystem : DistributedActorSystem
 {
-    public enum Mode {
+    public enum State: Sendable {
+        case connecting
+        case connected
+        case disconnected
+    }
+    
+    public enum Mode: Sendable {
         case receivingConnections
         case connectingToDaemon(serviceName: String)
         case connectingToXPCService(serviceName: String)
+        
+        var canReconnect: Bool {
+            switch self {
+            case .connectingToDaemon, .connectingToXPCService:
+                return true
+            default:
+                return false
+            }
+        }
     }
     
     enum ProtocolError: Swift.Error, LocalizedError {
@@ -41,18 +56,31 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     let liveActorStorage = LiveActorStorage()
     let nextActorId: Mutex<[ObjectIdentifier:Int]> = .init([:])
     let codeSigningRequirement: CodeSigningRequirement?
+    let mode: Mode
+    let state: Mutex<State> = .init(.disconnected)
     
     public init(mode: Mode, codeSigningRequirement: CodeSigningRequirement?)
     {
         self.codeSigningRequirement = codeSigningRequirement
+        self.mode = mode
         
-        switch mode {
-        case .receivingConnections:
-            break
-        case .connectingToDaemon(serviceName: let serviceName):
-            self.xpcConnection = XPCConnection(daemonServiceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
-        case .connectingToXPCService(serviceName: let serviceName):
-            self.xpcConnection = XPCConnection(serviceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
+        connect()
+    }
+    
+    func connect()
+    {
+        self.state.withLock { $0 = .connecting }
+        Task { @XPCActor in
+            switch mode {
+            case .receivingConnections:
+                break
+            case .connectingToDaemon(serviceName: let serviceName):
+                self.xpcConnection = XPCConnection(daemonServiceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
+                self.state.withLock { $0 = .connected }
+            case .connectingToXPCService(serviceName: let serviceName):
+                self.xpcConnection = XPCConnection(serviceName: serviceName, actorSystem: self, codeSigningRequirement: codeSigningRequirement)
+                self.state.withLock { $0 = .connected }
+            }
         }
     }
     
@@ -60,6 +88,20 @@ public final class XPCDistributedActorSystem : DistributedActorSystem
     {
         Task { @XPCActor in
             self.xpcConnection = connection
+        }
+    }
+    
+    func onConnectionInvalidated()
+    {
+        self.state.withLock { $0 = .disconnected }
+        
+        // The XPC connection becomes invalid if the specified service couldn't be found in the XPC service namespace.
+        // Usually, this is because of a misconfiguration. However, there are scenarios where invalidations happen and need to be dealt with.
+        // Example: After loading a deamon, its XPC listener isn't quite ready when trying to connect immediately.
+        // In these cases, it's reasonable to try to reconnect.
+        
+        if self.mode.canReconnect {
+            connect()
         }
     }
 

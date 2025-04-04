@@ -11,7 +11,7 @@ actor XPCConnection
         
     private let connection: xpc_connection_t
     private let actorSystem: XPCDistributedActorSystem
-    private var state: State = .created
+    private(set) var state: State = .created
     
     init(incomingConnection connection: sending xpc_connection_t, actorSystem: XPCDistributedActorSystem, codeSigningRequirement: CodeSigningRequirement?)
     {
@@ -71,6 +71,7 @@ actor XPCConnection
                 return
             } else if event === XPC_ERROR_CONNECTION_INVALID {
                 await self.setState(.notFound)
+                await self.actorSystem.onConnectionInvalidated()
                 return
             } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
                 // Interruptions can happen if, for example, the target process exits. However, daemons/agents are usually automatically restarted and the connection will work fine after that without having to recreate or reactivate it.
