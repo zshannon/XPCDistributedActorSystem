@@ -16,7 +16,7 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
         case connectionNotReady
     }
     
-    let category: Category
+    public let category: Category
     public let nativeErrorDescription: String?
     
     public var errorDescription: String? {
