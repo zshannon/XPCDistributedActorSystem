@@ -22,7 +22,9 @@ public struct InvocationResultHandler: DistributedTargetInvocationResultHandler
     
     public func onReturnVoid() async throws
     {
-        try await xpcConnection.reply(to: requestMessage)
+        let response = InvocationResponse<Never>()
+        let messageToSend = try XPCMessageWithObject(from: response, replyTo: requestMessage)
+        try await xpcConnection.reply(with: messageToSend)
     }
     
     public func onThrow<Err>(error: Err) async throws where Err: Swift.Error

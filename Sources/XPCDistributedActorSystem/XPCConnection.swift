@@ -110,12 +110,4 @@ actor XPCConnection
 
         xpc_connection_send_message(connection, messageToSend.raw)
     }
-    
-    func reply(to request: XPCMessageWithObject) throws
-    {
-        guard state == .active else { throw XPCError(.connectionNotReady) }
-
-        guard let message = xpc_dictionary_create_reply(request.raw) else { throw XPCError(.failedToCreateReply) }
-        xpc_connection_send_message(connection, message)
-    }
 }

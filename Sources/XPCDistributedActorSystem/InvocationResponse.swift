@@ -11,3 +11,8 @@ extension InvocationResponse where T == Never
         self.error = String(describing: error)
     }
 }
+
+extension InvocationResponse where T == Never
+{
+    public init() {}
+}

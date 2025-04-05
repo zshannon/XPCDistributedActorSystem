@@ -9,9 +9,14 @@ distributed public actor Calculator
     {
         self.actorSystem = actorSystem
     }
-        
+    
     distributed public func add(_ value1: Int, _ value2: Int) -> Int
     {
         value1 + value2
+    }
+    
+    distributed public func justARemoteFunction()
+    {
+        print("`justARemoteFunction` was called")
     }
 }

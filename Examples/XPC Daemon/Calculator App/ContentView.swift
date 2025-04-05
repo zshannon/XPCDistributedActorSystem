@@ -86,6 +86,20 @@ struct ContentView: View
                                     }
                                 }
                             }
+                            Button("Call a remote function (no output)") {
+                                guard let calculator else {
+                                    output = "Distributed actor not set up"
+                                    return
+                                }
+                                Task {
+                                    do {
+                                        try await calculator.justARemoteFunction()
+                                        output = ""
+                                    } catch {
+                                        output = "Failed to call remote function: \(error.localizedDescription)"
+                                    }
+                                }
+                            }
                         }
                     }
                     LabeledContent("Response") {
