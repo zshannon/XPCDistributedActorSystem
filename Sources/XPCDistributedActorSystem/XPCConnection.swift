@@ -99,6 +99,8 @@ actor XPCConnection
             }
         }
         
+        // TODO: Implement timeout
+        
         let receivedMessageWithObject = XPCMessageWithObject(raw: receivedMessage)
         let extractedObject = try receivedMessageWithObject.extract(ObjectToReceive.self)
         return extractedObject
