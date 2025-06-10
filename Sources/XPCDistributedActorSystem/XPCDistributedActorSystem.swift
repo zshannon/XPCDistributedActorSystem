@@ -3,36 +3,59 @@ import Foundation
 @preconcurrency import SwiftyXPC
 import Synchronization
 
-@propertyWrapper
-public struct UnsafeSendable<Value>: @unchecked Sendable {
-    public var wrappedValue: Value
+// MARK: - Actor Creation Manager
 
-    public init(wrappedValue: Value) {
-        self.wrappedValue = wrappedValue
+private actor ActorCreationManager {
+    private var creatingActors: Set<XPCDistributedActorSystem.ActorID> = []
+
+    func getOrCreateActor(
+        id: XPCDistributedActorSystem.ActorID,
+        system: XPCDistributedActorSystem,
+        handler: @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+    ) async throws -> (any DistributedActor)? {
+        // Check if already exists
+        if let existing = system.liveActorStorage.get(id) {
+            return existing
+        }
+
+        // Check if already creating
+        if creatingActors.contains(id) {
+            // Wait a bit and check again
+            try await Task.sleep(for: .milliseconds(10))
+            return try await getOrCreateActor(id: id, system: system, handler: handler)
+        }
+
+        // Mark as creating
+        creatingActors.insert(id)
+        defer { creatingActors.remove(id) }
+
+        // Double check after marking
+        if let existing = system.liveActorStorage.get(id) {
+            return existing
+        }
+
+        // Create the actor
+        let newActor = try await XPCDistributedActorSystem.$pendingActorID.withValue(id) {
+            try await handler(system)
+        }
+
+        if let actor = newActor {
+            system.createdActors.withLock { createdActors in
+                createdActors[id] = actor
+            }
+        }
+
+        return newActor
     }
 }
 
-public final class XPCDistributedActorSystem: DistributedActorSystem {
+// MARK: - Base System
+
+public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Sendable {
     public enum State: Sendable {
         case connecting
         case connected
         case disconnected
-    }
-
-    public enum Mode: Sendable {
-        case receivingConnections(listener: SwiftyXPC.XPCListener)
-        case connectingToDaemon(serviceName: String)
-        case connectingToXPCService(serviceName: String)
-        case connectingToEndpoint(endpoint: SwiftyXPC.XPCEndpoint)
-
-        var canReconnect: Bool {
-            switch self {
-            case .connectingToDaemon, .connectingToXPCService:
-                return true
-            default:
-                return false
-            }
-        }
     }
 
     enum ProtocolError: Swift.Error, LocalizedError {
@@ -55,19 +78,14 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
         }
     }
 
-    public typealias ActorID = Int
+    public typealias ActorID = UUID
     public typealias InvocationEncoder = GenericInvocationEncoder
     public typealias InvocationDecoder = GenericInvocationDecoder
     public typealias ResultHandler = InvocationResultHandler
     public typealias SerializationRequirement = any Codable
 
-    @XPCActor private var xpcConnection: SwiftyXPC.XPCConnection?
-    @XPCActor private var listener: SwiftyXPC.XPCListener?
-
     let liveActorStorage = LiveActorStorage()
-    let nextActorId: Mutex<[ObjectIdentifier: Int]> = .init([:])
-    let codeSigningRequirement: CodeSigningRequirement?
-    let mode: Mode
+    let nextActorId: Mutex<[ObjectIdentifier: ActorID]> = .init([:])
     let state: Mutex<State> = .init(.disconnected)
     let actorCreationHandler:
         (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?
@@ -75,122 +93,15 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
     // Strong references to actors created via handler to keep them alive
     let createdActors: Mutex<[ActorID: any DistributedActor]> = .init([:])
 
+    // Actor to synchronize actor creation to prevent race conditions
+    private let actorManager: ActorCreationManager
+
     // Thread-local storage for overriding the next assigned ID
     @TaskLocal static var pendingActorID: ActorID?
 
-    public init(mode: Mode, codeSigningRequirement: CodeSigningRequirement?) {
-        self.codeSigningRequirement = codeSigningRequirement
-        self.mode = mode
-        self.actorCreationHandler = nil
-
-        connect()
-    }
-
-    public init(
-        mode: Mode, codeSigningRequirement: CodeSigningRequirement?,
-        actorCreationHandler: @escaping @Sendable (XPCDistributedActorSystem) async throws -> (
-            any DistributedActor
-        )?
-    ) {
-        self.codeSigningRequirement = codeSigningRequirement
-        self.mode = mode
+    init(actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?) {
         self.actorCreationHandler = actorCreationHandler
-
-        connect()
-    }
-
-    func connect() {
-        self.state.withLock { $0 = .connecting }
-        Task { @XPCActor in
-            do {
-                switch mode {
-                case .receivingConnections(listener: let xpcListener):
-                    self.listener = xpcListener
-                    xpcListener.activatedConnectionHandler = { [weak self] newConnection in
-                        guard let self = self else { return }
-                        Task { @XPCActor in
-                            do {
-                                self.xpcConnection = newConnection
-                                self.setupConnectionHandlers(newConnection)
-                                try await newConnection.activate()
-                                self.state.withLock { $0 = .connected }
-                            } catch {
-                                self.state.withLock { $0 = .disconnected }
-                            }
-                        }
-                    }
-                    xpcListener.activate()
-                    self.state.withLock { $0 = .connected }
-                case .connectingToDaemon(let serviceName):
-                    let connection = try SwiftyXPC.XPCConnection(
-                        type: .remoteMachService(
-                            serviceName: serviceName, isPrivilegedHelperTool: true),
-                        codeSigningRequirement: codeSigningRequirement?.requirement)
-                    self.xpcConnection = connection
-                    self.setupConnectionHandlers(connection)
-                    try await connection.activate()
-                    self.state.withLock { $0 = .connected }
-                case .connectingToXPCService(let serviceName):
-                    let connection = try SwiftyXPC.XPCConnection(
-                        type: .remoteService(bundleID: serviceName),
-                        codeSigningRequirement: codeSigningRequirement?.requirement)
-                    self.xpcConnection = connection
-                    self.setupConnectionHandlers(connection)
-                    try await connection.activate()
-                    self.state.withLock { $0 = .connected }
-                case .connectingToEndpoint(let endpoint):
-                    let connection = try SwiftyXPC.XPCConnection(
-                        type: .remoteServiceFromEndpoint(endpoint),
-                        codeSigningRequirement: codeSigningRequirement?.requirement)
-                    self.xpcConnection = connection
-                    self.setupConnectionHandlers(connection)
-                    try await connection.activate()
-                    self.state.withLock { $0 = .connected }
-                }
-            } catch {
-                self.state.withLock { $0 = .disconnected }
-            }
-        }
-    }
-
-    nonisolated func setConnection(_ connection: SwiftyXPC.XPCConnection?) {
-        Task { @XPCActor in
-            self.xpcConnection = connection
-            if let connection = connection {
-                self.setupConnectionHandlers(connection)
-            }
-        }
-    }
-
-    @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
-        connection.errorHandler = { [weak self] _, error in
-            guard let self else { return }
-            Task { @XPCActor in
-                self.onConnectionInvalidated()
-            }
-        }
-
-        connection.setMessageHandler(name: "invoke") {
-            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
-                async throws -> InvocationResponse<Data> in
-            guard let self else {
-                return InvocationResponse<Data>(error: "invalid state", value: nil)
-            }
-            return await self.handleInvocation(request: request)
-        }
-    }
-
-    func onConnectionInvalidated() {
-        self.state.withLock { $0 = .disconnected }
-
-        // The XPC connection becomes invalid if the specified service couldn't be found in the XPC service namespace.
-        // Usually, this is because of a misconfiguration. However, there are scenarios where invalidations happen and need to be dealt with.
-        // Example: After loading a deamon, its XPC listener isn't quite ready when trying to connect immediately.
-        // In these cases, it's reasonable to try to reconnect.
-
-        if self.mode.canReconnect {
-            connect()
-        }
+        self.actorManager = ActorCreationManager()
     }
 
     func handleInvocation(request: InvocationRequest) async -> InvocationResponse<Data> {
@@ -198,32 +109,11 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
             var localActor = self.liveActorStorage.get(request.actorId)
 
             if localActor == nil, let actorCreationHandler = self.actorCreationHandler {
-                // Double-checked locking pattern for actor creation
-                localActor = self.liveActorStorage.actors.withLock { actors in
-                    if let existingRef = actors[request.actorId],
-                        let existingActor = existingRef.actor
-                    {
-                        return existingActor
-                    }
-                    return nil
-                }
-
-                if localActor == nil {
-                    // Set the pending actor ID so assignID() will use it
-                    let newActor = try await XPCDistributedActorSystem.$pendingActorID.withValue(
-                        request.actorId
-                    ) {
-                        try await actorCreationHandler(self)
-                    }
-
-                    if let actor = newActor {
-                        // Store strong reference to keep actor alive
-                        self.createdActors.withLock { createdActors in
-                            createdActors[request.actorId] = actor
-                        }
-                        localActor = actor
-                    }
-                }
+                localActor = try await self.actorManager.getOrCreateActor(
+                    id: request.actorId,
+                    system: self,
+                    handler: actorCreationHandler
+                )
             }
 
             guard let localActor else {
@@ -250,7 +140,148 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
         InvocationEncoder()
     }
 
+    public func actorReady<Act>(_ actor: Act) where Act: DistributedActor, ActorID == Act.ID {
+        liveActorStorage.add(actor)
+    }
+
+    public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
+    where Act: DistributedActor, ActorID == Act.ID {
+        liveActorStorage.get(id, as: actorType.self)
+    }
+
+    public func assignID<Act>(_ actorType: Act.Type) -> ActorID
+    where Act: DistributedActor, UUID == Act.ID {
+        // Check if there's a pending actor ID to use (for actor creation handler)
+        if let pendingID = XPCDistributedActorSystem.pendingActorID {
+            return pendingID
+        }
+
+        var id: Act.ID?
+
+        nextActorId.withLock { dictionary in
+            let nextId: Act.ID = .init()
+            dictionary[ObjectIdentifier(actorType)] = nextId
+            id = nextId
+        }
+
+        guard let id else {
+            fatalError("Failed to assign ID")
+        }
+
+        return id
+    }
+
+    public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
+        liveActorStorage.remove(id)
+        // Also remove from strong reference storage
+        _ = createdActors.withLock { createdActors in
+            createdActors.removeValue(forKey: id)
+        }
+    }
+
+    // Abstract methods to be implemented by subclasses
     public func remoteCall<Act, Err, Res>(
+        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
+        throwing: Err.Type, returning: Res.Type
+    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
+        fatalError("Must be implemented by subclass")
+    }
+
+    public func remoteCallVoid<Act, Err>(
+        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
+        throwing: Err.Type
+    ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
+        fatalError("Must be implemented by subclass")
+    }
+
+    // For backwards compatibility with XPCServiceListener
+    nonisolated func setConnection(_ connection: SwiftyXPC.XPCConnection?) {
+        // This method was used by XPCServiceListener but is no longer needed
+        // in the new architecture since clients and servers handle connections internally
+    }
+}
+
+// MARK: - Client System
+
+public final class XPCDistributedActorClient: XPCDistributedActorSystem {
+    public enum ConnectionType: Sendable {
+        case daemon(serviceName: String)
+        case xpcService(serviceName: String)
+        case endpoint(SwiftyXPC.XPCEndpoint)
+    }
+
+    @XPCActor private var xpcConnection: SwiftyXPC.XPCConnection?
+    private let connectionType: ConnectionType
+    private let codeSigningRequirement: CodeSigningRequirement?
+
+    public init(
+        connectionType: ConnectionType,
+        codeSigningRequirement: CodeSigningRequirement? = nil,
+        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+    ) async throws {
+        self.codeSigningRequirement = codeSigningRequirement
+        self.connectionType = connectionType
+        super.init(actorCreationHandler: actorCreationHandler)
+        try await connect()
+    }
+
+    private func connect() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            Task { @XPCActor in
+                do {
+                    self.state.withLock { $0 = .connecting }
+                    let connection = try self.createConnection()
+                    self.xpcConnection = connection
+                    self.setupConnectionHandlers(connection)
+                    try await connection.activate()
+                    self.state.withLock { $0 = .connected }
+                    continuation.resume()
+                } catch {
+                    self.state.withLock { $0 = .disconnected }
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    @XPCActor private func createConnection() throws -> SwiftyXPC.XPCConnection {
+        switch connectionType {
+        case .daemon(let serviceName):
+            return try SwiftyXPC.XPCConnection(
+                type: .remoteMachService(serviceName: serviceName, isPrivilegedHelperTool: true),
+                codeSigningRequirement: codeSigningRequirement?.requirement
+            )
+        case .xpcService(let serviceName):
+            return try SwiftyXPC.XPCConnection(
+                type: .remoteService(bundleID: serviceName),
+                codeSigningRequirement: codeSigningRequirement?.requirement
+            )
+        case .endpoint(let endpoint):
+            return try SwiftyXPC.XPCConnection(
+                type: .remoteServiceFromEndpoint(endpoint),
+                codeSigningRequirement: codeSigningRequirement?.requirement
+            )
+        }
+    }
+
+    @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
+        connection.errorHandler = { [weak self] _, error in
+            guard let self else { return }
+            Task { @XPCActor in
+                self.onConnectionInvalidated()
+            }
+        }
+    }
+
+    @XPCActor private func onConnectionInvalidated() {
+        self.state.withLock { $0 = .disconnected }
+        // Automatically reconnect for client connections
+        Task {
+            try? await connect()
+        }
+    }
+
+    public override func remoteCall<Act, Err, Res>(
         on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
         throwing: Err.Type, returning: Res.Type
     ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
@@ -272,7 +303,7 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
         return try JSONDecoder().decode(Res.self, from: valueData)
     }
 
-    public func remoteCallVoid<Act, Err>(
+    public override func remoteCallVoid<Act, Err>(
         on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
         throwing: Err.Type
     ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
@@ -287,43 +318,98 @@ public final class XPCDistributedActorSystem: DistributedActorSystem {
             throw ProtocolError.errorFromRemoteActor(error)
         }
     }
+}
 
-    public func actorReady<Act>(_ actor: Act) where Act: DistributedActor, ActorID == Act.ID {
-        liveActorStorage.add(actor)
+// MARK: - Server System
+
+public final class XPCDistributedActorServer: XPCDistributedActorSystem {
+    @XPCActor private var listener: SwiftyXPC.XPCListener?
+    @XPCActor private var activeConnections: [SwiftyXPC.XPCConnection] = []
+
+    public init(
+        listener: SwiftyXPC.XPCListener,
+        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+    ) async throws {
+        super.init(actorCreationHandler: actorCreationHandler)
+        try await startListening(listener: listener)
     }
 
-    public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
-    where Act: DistributedActor, ActorID == Act.ID {
-        liveActorStorage.get(id, as: actorType.self)
+    private func startListening(listener: SwiftyXPC.XPCListener) async throws {
+        await withCheckedContinuation { continuation in
+            Task { @XPCActor in
+                self.state.withLock { $0 = .connecting }
+                self.listener = listener
+                self.setupListener(listener)
+                listener.activate()
+                self.state.withLock { $0 = .connected }
+                continuation.resume()
+            }
+        }
     }
 
-    public func assignID<Act>(_ actorType: Act.Type) -> ActorID
-    where Act: DistributedActor, Int == Act.ID {
-        // Check if there's a pending actor ID to use (for actor creation handler)
-        if let pendingID = XPCDistributedActorSystem.pendingActorID {
-            return pendingID
+    @XPCActor private func setupListener(_ listener: SwiftyXPC.XPCListener) {
+        listener.activatedConnectionHandler = { [weak self] newConnection in
+            guard let self = self else { return }
+            Task { @XPCActor in
+                self.handleNewConnection(newConnection)
+            }
         }
-
-        var id: Int?
-
-        nextActorId.withLock { dictionary in
-            let nextId = dictionary[ObjectIdentifier(actorType)] ?? 1
-            dictionary[ObjectIdentifier(actorType)] = nextId + 1
-            id = nextId
-        }
-
-        guard let id else {
-            fatalError("Failed to assign ID")
-        }
-
-        return id
     }
 
-    public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
-        liveActorStorage.remove(id)
-        // Also remove from strong reference storage
-        _ = createdActors.withLock { createdActors in
-            createdActors.removeValue(forKey: id)
+    @XPCActor private func handleNewConnection(_ connection: SwiftyXPC.XPCConnection) {
+        activeConnections.append(connection)
+        setupConnectionHandlers(connection)
+
+        Task {
+            do {
+                try await connection.activate()
+            } catch {
+                self.removeConnection(connection)
+            }
         }
+    }
+
+    @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
+        connection.errorHandler = { [weak self] _, error in
+            guard let self else { return }
+            Task { @XPCActor in
+                self.removeConnection(connection)
+            }
+        }
+
+        connection.setMessageHandler(name: "invoke") {
+            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
+                async throws -> InvocationResponse<Data> in
+            guard let self else {
+                return InvocationResponse<Data>(error: "Server unavailable", value: nil)
+            }
+            return await self.handleInvocation(request: request)
+        }
+    }
+
+    @XPCActor private func removeConnection(_ connection: SwiftyXPC.XPCConnection) {
+        activeConnections.removeAll { $0 === connection }
+    }
+
+    public override func remoteCall<Act, Err, Res>(
+        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
+        throwing: Err.Type, returning: Res.Type
+    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
+        // Server systems typically don't make remote calls, but if needed, this could be implemented
+        // to call out to other services
+        throw ProtocolError.noConnection
+    }
+
+    public override func remoteCallVoid<Act, Err>(
+        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
+        throwing: Err.Type
+    ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
+        // Server systems typically don't make remote calls, but if needed, this could be implemented
+        // to call out to other services
+        throw ProtocolError.noConnection
+    }
+
+    @XPCActor public func getActiveConnectionCount() -> Int {
+        activeConnections.count
     }
 }
