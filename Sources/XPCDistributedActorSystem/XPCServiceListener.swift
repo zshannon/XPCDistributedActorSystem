@@ -5,33 +5,31 @@ public actor XPCServiceListener {
         case previousInstanceExists
     }
 
-    static var shared: XPCServiceListener?
-
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: XPCConnection? {
+    var lastConnection: SwiftyXPC.XPCConnection? {
         didSet { actorSystem.setConnection(lastConnection) }
     }
     private let listener: XPCListener
 
-    public init(actorSystem: XPCDistributedActorSystem) throws {
-        guard Self.shared == nil else { throw Error.previousInstanceExists }
+    public init(listener: XPCListener, actorSystem: XPCDistributedActorSystem) async throws {
         self.actorSystem = actorSystem
-        self.listener = try XPCListener(type: .service, codeSigningRequirement: actorSystem.codeSigningRequirement?.requirement)
-        Self.shared = self
+        self.listener = listener
         listener.activatedConnectionHandler = { [weak self] newConnection in
             guard let self else { return }
-            let connection = XPCConnection(incomingConnection: newConnection, actorSystem: actorSystem, codeSigningRequirement: actorSystem.codeSigningRequirement)
-            Task { await self.setConnection(connection) }
+            Task {
+                await self.setConnection(newConnection)
+            }
         }
     }
 
-    public nonisolated func run() -> Never {
+    public func run() {
         listener.activate()
-        dispatchMain()
     }
 
-    func setConnection(_ connection: XPCConnection) async {
-        if let lastConnection { await lastConnection.close() }
+    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
+        if let lastConnection {
+            try? await lastConnection.cancel()
+        }
         self.lastConnection = connection
     }
 }

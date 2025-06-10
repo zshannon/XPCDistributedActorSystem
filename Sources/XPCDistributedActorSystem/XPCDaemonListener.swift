@@ -2,23 +2,24 @@ import SwiftyXPC
 
 public actor XPCDaemonListener {
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: XPCConnection?
+    var lastConnection: SwiftyXPC.XPCConnection?
     private let listener: XPCListener
 
-    public init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem) throws {
+    public init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem) async throws {
         self.actorSystem = actorSystem
         self.listener = try XPCListener(type: .machService(name: daemonServiceName), codeSigningRequirement: actorSystem.codeSigningRequirement?.requirement)
         listener.activatedConnectionHandler = { [weak self] newConnection in
             guard let self else { return }
-            let connection = XPCConnection(incomingConnection: newConnection, actorSystem: actorSystem, codeSigningRequirement: actorSystem.codeSigningRequirement)
-            Task { await self.setConnection(connection) }
+            Task {
+                await self.setConnection(newConnection)
+            }
         }
         listener.activate()
     }
 
-    func setConnection(_ connection: XPCConnection) async {
+    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
         if let lastConnection {
-            await lastConnection.close()
+            try? await lastConnection.cancel()
         }
         self.lastConnection = connection
     }

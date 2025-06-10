@@ -1,20 +1,20 @@
 import Distributed
 import Foundation
 
-final class InvocationResultHandler: DistributedTargetInvocationResultHandler {
-    typealias SerializationRequirement = any Codable
+public final class InvocationResultHandler: DistributedTargetInvocationResultHandler {
+    public typealias SerializationRequirement = any Codable
     private(set) var response: InvocationResponse<Data>?
 
-    func onReturn<V: Codable>(value: V) async throws {
+    public func onReturn<V: Codable>(value: V) async throws {
         let data = try JSONEncoder().encode(value)
         response = InvocationResponse(value: data)
     }
 
-    func onReturnVoid() async throws {
-        response = InvocationResponse<Never>()
+    public func onReturnVoid() async throws {
+        response = InvocationResponse<Data>(error: nil, value: nil)
     }
 
-    func onThrow<Err>(error: Err) async throws where Err: Error {
-        response = InvocationResponse(error: error)
+    public func onThrow<Err>(error: Err) async throws where Err: Error {
+        response = InvocationResponse<Data>(error: String(describing: error), value: nil)
     }
 }
