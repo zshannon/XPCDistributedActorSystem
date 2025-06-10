@@ -1,45 +1,37 @@
-@preconcurrency import XPC
+import SwiftyXPC
 
-public actor XPCServiceListener
-{
+public actor XPCServiceListener {
     enum Error: Swift.Error {
         case previousInstanceExists
     }
-    
+
     static var shared: XPCServiceListener?
 
     let actorSystem: XPCDistributedActorSystem
     var lastConnection: XPCConnection? {
-        didSet {
-            actorSystem.setConnection(lastConnection)
-        }
+        didSet { actorSystem.setConnection(lastConnection) }
     }
-    
-    public init(actorSystem: XPCDistributedActorSystem) throws
-    {
-        guard Self.shared == nil else {
-            throw Error.previousInstanceExists
-        }
+    private let listener: XPCListener
+
+    public init(actorSystem: XPCDistributedActorSystem) throws {
+        guard Self.shared == nil else { throw Error.previousInstanceExists }
         self.actorSystem = actorSystem
+        self.listener = try XPCListener(type: .service, codeSigningRequirement: actorSystem.codeSigningRequirement?.requirement)
         Self.shared = self
-    }
-    
-    public nonisolated func run() -> Never
-    {
-        xpc_main { connection in
-            guard let listener = XPCServiceListener.shared else { return }
-            Task {
-                let connection = XPCConnection(incomingConnection: connection, actorSystem: listener.actorSystem, codeSigningRequirement: listener.actorSystem.codeSigningRequirement)
-                await listener.setConnection(connection)
-            }
+        listener.activatedConnectionHandler = { [weak self] newConnection in
+            guard let self else { return }
+            let connection = XPCConnection(incomingConnection: newConnection, actorSystem: actorSystem, codeSigningRequirement: actorSystem.codeSigningRequirement)
+            Task { await self.setConnection(connection) }
         }
     }
-    
-    func setConnection(_ connection: XPCConnection) async
-    {
-        if let lastConnection {
-            await lastConnection.close()
-        }
+
+    public nonisolated func run() -> Never {
+        listener.activate()
+        dispatchMain()
+    }
+
+    func setConnection(_ connection: XPCConnection) async {
+        if let lastConnection { await lastConnection.close() }
         self.lastConnection = connection
     }
 }

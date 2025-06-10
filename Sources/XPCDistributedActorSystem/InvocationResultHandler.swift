@@ -1,36 +1,20 @@
 import Distributed
+import Foundation
 
-public struct InvocationResultHandler: DistributedTargetInvocationResultHandler
-{
-    public typealias SerializationRequirement = any Codable
-    
-    let xpcConnection: XPCConnection
-    let requestMessage: XPCMessageWithObject
-    
-    init(xpcConnection: XPCConnection, request: XPCMessageWithObject)
-    {
-        self.xpcConnection = xpcConnection
-        self.requestMessage = request
+final class InvocationResultHandler: DistributedTargetInvocationResultHandler {
+    typealias SerializationRequirement = any Codable
+    private(set) var response: InvocationResponse<Data>?
+
+    func onReturn<V: Codable>(value: V) async throws {
+        let data = try JSONEncoder().encode(value)
+        response = InvocationResponse(value: data)
     }
-    
-    public func onReturn<V: Codable>(value: V) async throws
-    {
-        let response = InvocationResponse(value: value)
-        let messageToSend = try XPCMessageWithObject(from: response, replyTo: requestMessage)
-        try await xpcConnection.reply(with: messageToSend)
+
+    func onReturnVoid() async throws {
+        response = InvocationResponse<Never>()
     }
-    
-    public func onReturnVoid() async throws
-    {
-        let response = InvocationResponse<Never>()
-        let messageToSend = try XPCMessageWithObject(from: response, replyTo: requestMessage)
-        try await xpcConnection.reply(with: messageToSend)
-    }
-    
-    public func onThrow<Err>(error: Err) async throws where Err: Swift.Error
-    {
-        let response = InvocationResponse(error: error)
-        let messageToSend = try XPCMessageWithObject(from: response, replyTo: requestMessage)
-        try await xpcConnection.reply(with: messageToSend)
+
+    func onThrow<Err>(error: Err) async throws where Err: Error {
+        response = InvocationResponse(error: error)
     }
 }

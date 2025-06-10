@@ -11,7 +11,15 @@ let package = Package(
     products: [
         .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/zshannon/SwiftyXPC", from: "0.6.2")
+    ],
     targets: [
-        .target(name: "XPCDistributedActorSystem"),
+        .target(
+            name: "XPCDistributedActorSystem",
+            dependencies: [
+                .product(name: "SwiftyXPC", package: "SwiftyXPC")
+            ]
+        ),
     ]
 )
