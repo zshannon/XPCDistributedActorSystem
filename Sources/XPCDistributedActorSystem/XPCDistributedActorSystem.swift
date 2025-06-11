@@ -84,7 +84,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public typealias InvocationEncoder = GenericInvocationEncoder
     public typealias InvocationDecoder = GenericInvocationDecoder
     public typealias ResultHandler = InvocationResultHandler
-    public typealias SerializationRequirement = any Codable
+    public typealias SerializationRequirement = Codable
 
     let liveActorStorage = LiveActorStorage()
     let nextActorId: Mutex<[ObjectIdentifier: ActorID]> = .init([:])
@@ -190,6 +190,17 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     )
         async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Res: Codable
     {
+        fatalError("Must be implemented by subclass")
+    }
+
+    // swiftformat:disable:next opaqueGenericParameters,unusedArguments
+    public func remoteCall<Act, Err, Res>(
+        on actor: Act,
+        target: RemoteCallTarget,
+        invocation: inout InvocationEncoder,
+        throwing: Err.Type,
+        returning: Res.Type
+    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: SerializationRequirement {
         fatalError("Must be implemented by subclass")
     }
 
