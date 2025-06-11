@@ -2,40 +2,38 @@ name: SwiftFormat
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - '**/*.swift'
+      - "**/*.swift"
 
 jobs:
   swiftformat:
     name: SwiftFormat Check
     runs-on: macos-latest
-    
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Setup Swift
-      uses: swift-actions/setup-swift@v2
-      with:
-        swift-version-file: '.swift-version'
-      
-    - name: Cache Mint
-      uses: actions/cache@v4
-      with:
-        path: ~/.mint
-        key: ${{ runner.os }}-mint-${{ hashFiles('Mintfile') }}
-        restore-keys: |
-          ${{ runner.os }}-mint-
-    
-    - name: Install Mint
-      run: |
-        brew install mint
-        
-    - name: Install SwiftFormat from Mintfile
-      run: |
-        mint bootstrap
-        
-    - name: Run SwiftFormat
-      run: |
-        mint run SwiftFormat --lint --verbose .
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+
+      - name: Cache Mint
+        uses: actions/cache@v4
+        with:
+          path: ~/.mint
+          key: ${{ runner.os }}-mint-${{ hashFiles('Mintfile') }}
+          restore-keys: |
+            ${{ runner.os }}-mint-
+
+      - name: Install Mint
+        run: |
+          brew install mint
+
+      - name: Install SwiftFormat from Mintfile
+        run: |
+          mint bootstrap
+
+      - name: Run SwiftFormat
+        run: |
+          mint run SwiftFormat --lint --verbose .
