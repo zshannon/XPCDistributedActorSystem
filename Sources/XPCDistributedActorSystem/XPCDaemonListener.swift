@@ -1,8 +1,8 @@
-import SwiftyXPC
+import XPC
 
 public actor XPCDaemonListener {
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: SwiftyXPC.XPCConnection?
+    var lastConnection: XPCSession?
     private let listener: XPCListener
 
     public init(
@@ -16,7 +16,7 @@ public actor XPCDaemonListener {
             type: .machService(name: daemonServiceName),
             codeSigningRequirement: codeSigningRequirement?.requirement,
         )
-        listener.activatedConnectionHandler = { [weak self] newConnection in
+        listener.incomingSessionHandler = { [weak self] newConnection in
             guard let self else { return }
             Task {
                 await self.setConnection(newConnection)
@@ -25,7 +25,7 @@ public actor XPCDaemonListener {
         listener.activate()
     }
 
-    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
+    func setConnection(_ connection: XPCSession) async {
         if let lastConnection {
             try? await lastConnection.cancel()
         }

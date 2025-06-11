@@ -1,5 +1,5 @@
 import Distributed
-import SwiftyXPC
+import XPC
 import Testing
 @testable import XPCDistributedActorSystem
 
@@ -28,7 +28,7 @@ distributed actor Calculator {
 struct XPCDistributedActorSystemTests {
     @Test("Basic XPC using resolve()")
     func basicXPCTest() async throws {
-        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        let listenerXPC = try XPCListener(type: .anonymous, codeSigningRequirement: nil, incomingSessionHandler: { _ in })
         try await confirmation("creates remote actor just once") { confirmCreatesActor in
             let xpcHostDAS = try await XPCDistributedActorServer(
                 listener: listenerXPC,
@@ -42,7 +42,7 @@ struct XPCDistributedActorSystemTests {
             // Create a client actor system that connects to the listener's endpoint
             let clientDAS = try await XPCDistributedActorClient(
                 connectionType: .endpoint(listenerXPC.endpoint),
-                codeSigningRequirement: nil,
+                codeSigningRequirement: nil
             )
 
             // For now, let's create a remote reference manually since resolve might return nil for remote actors
@@ -62,7 +62,7 @@ struct XPCDistributedActorSystemTests {
 
     @Test("Multiple parallel clients")
     func multipleClients() async throws {
-        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        let listenerXPC = try XPCListener(type: .anonymous, codeSigningRequirement: nil, incomingSessionHandler: { _ in })
         let endpoint = listenerXPC.endpoint
         let count: Int = .random(in: 5 ... 10)
         try await confirmation("creates remote actor just once", expectedCount: count) { confirmCreatesActor in

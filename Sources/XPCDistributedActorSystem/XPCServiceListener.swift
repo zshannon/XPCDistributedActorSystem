@@ -1,4 +1,4 @@
-import SwiftyXPC
+import XPC
 
 public actor XPCServiceListener {
     enum Error: Swift.Error {
@@ -6,7 +6,7 @@ public actor XPCServiceListener {
     }
 
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: SwiftyXPC.XPCConnection? {
+    var lastConnection: XPCSession? {
         didSet { actorSystem.setConnection(lastConnection) }
     }
 
@@ -15,7 +15,7 @@ public actor XPCServiceListener {
     public init(listener: XPCListener, actorSystem: XPCDistributedActorSystem) async throws {
         self.actorSystem = actorSystem
         self.listener = listener
-        listener.activatedConnectionHandler = { [weak self] newConnection in
+        listener.incomingSessionHandler = { [weak self] newConnection in
             guard let self else { return }
             Task {
                 await self.setConnection(newConnection)
@@ -27,7 +27,7 @@ public actor XPCServiceListener {
         listener.activate()
     }
 
-    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
+    func setConnection(_ connection: XPCSession) async {
         if let lastConnection {
             try? await lastConnection.cancel()
         }
