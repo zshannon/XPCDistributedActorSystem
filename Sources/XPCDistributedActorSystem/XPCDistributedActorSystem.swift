@@ -5,34 +5,6 @@ import Semaphore
 @preconcurrency import SwiftyXPC
 import Synchronization
 
-// this is a funny hack to make it possible to decode AsyncStream<any Codable> asynchronously
-private protocol _IsAsyncStreamOfCodable {}
-extension AsyncStream: _IsAsyncStreamOfCodable where Element: Codable {}
-
-extension AsyncStream: Codable where Element: Codable {
-    public init(from decoder: Decoder) throws {
-        @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-        @Dependency(\.distributedActorSystem) var das
-        let container = try decoder.singleValueContainer()
-        // TODO: create proxy on `das` then signal the semaphore
-        self.init { continuation in
-            semaphore.signal()
-            continuation.finish()
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encodeNil()
-        @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-        @Dependency(\.distributedActorSystem) var das
-        // TODO: store `self` on `das` then signal the semaphore
-        semaphore.signal()
-    }
-}
-
-extension AsyncStream: Sendable where Element: Sendable {}
-
 public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Sendable {
     public enum State: Sendable {
         case connecting
@@ -77,11 +49,16 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
 
     // Actor to synchronize actor creation to prevent race conditions
     private let actorManager: ActorCreationManager
+    private let codableAsyncStreamManager: CodableAsyncStreamManager<ActorID> = .init()
 
     // Thread-local storage for overriding the next assigned ID
     @TaskLocal static var pendingActorID: ActorID?
 
-    init(actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?) {
+    init(
+        actorCreationHandler: (
+            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+        )?
+    ) {
         self.actorCreationHandler = actorCreationHandler
         actorManager = ActorCreationManager()
     }
@@ -91,11 +68,15 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
             var localActor = liveActorStorage.get(request.actorId)
 
             if localActor == nil, let actorCreationHandler {
-                localActor = try await actorManager.getOrCreateActor(
-                    id: request.actorId,
-                    system: self,
-                    handler: actorCreationHandler,
-                )
+                localActor = try await withDependencies {
+                    $0.distributedActorSystem = self
+                } operation: {
+                    try await actorManager.getOrCreateActor(
+                        id: request.actorId,
+                        system: self,
+                        handler: actorCreationHandler,
+                    )
+                }
             }
 
             guard let localActor else {
@@ -190,7 +171,9 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         invocation: inout InvocationEncoder,
         throwing: Err.Type,
         returning: Res.Type
-    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: SerializationRequirement {
+    ) async throws -> Res
+        where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: SerializationRequirement
+    {
         fatalError("Must be implemented by subclass")
     }
 
@@ -203,10 +186,28 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         fatalError("Must be implemented by subclass")
     }
 
-    // For backwards compatibility with XPCServiceListener
-    nonisolated func setConnection(_: SwiftyXPC.XPCConnection?) {
-        // This method was used by XPCServiceListener but is no longer needed
-        // in the new architecture since clients and servers handle connections internally
+    func storeCodableAsyncStream(_ cas: some Identifiable<ActorID> & Sendable) async {
+        await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            await codableAsyncStreamManager.storeCodableAsyncStream(cas)
+        }
+    }
+
+    func releaseCodableAsyncStream(_ id: ActorID) async {
+        await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            await codableAsyncStreamManager.releaseCodableAsyncStream(id)
+        }
+    }
+
+    func countCodableAsyncStreams() async -> Int {
+        await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            await codableAsyncStreamManager.countCodableAsyncStreams()
+        }
     }
 }
 
@@ -226,7 +227,9 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
     public init(
         connectionType: ConnectionType,
         codeSigningRequirement: CodeSigningRequirement? = nil,
-        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+        actorCreationHandler: (
+            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+        )? = nil
     )
     async throws {
         self.codeSigningRequirement = codeSigningRequirement
@@ -302,9 +305,14 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
         let request = InvocationRequest(
             actorId: actor.id, target: target.identifier, invocation: invocation,
         )
-        let response: InvocationResponse<Data> = try await xpcConnection.sendMessage(
-            name: "invoke", request: request,
-        )
+
+        let response: InvocationResponse<Data> = try await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            try await xpcConnection.sendMessage(
+                name: "invoke", request: request,
+            )
+        }
 
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
@@ -357,7 +365,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
 
     public init(
         listener: SwiftyXPC.XPCListener,
-        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+        actorCreationHandler: (
+            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+        )? = nil
     )
     async throws {
         super.init(actorCreationHandler: actorCreationHandler)
@@ -368,7 +378,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     public init(
         daemonServiceName: String,
         codeSigningRequirement: CodeSigningRequirement? = nil,
-        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+        actorCreationHandler: (
+            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+        )? = nil
     )
     async throws {
         let listener = try SwiftyXPC.XPCListener(
@@ -383,7 +395,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     public init(
         xpcService _: Bool = true,
         codeSigningRequirement: CodeSigningRequirement? = nil,
-        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+        actorCreationHandler: (
+            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+        )? = nil
     )
     async throws {
         let listener = try SwiftyXPC.XPCListener(
@@ -479,16 +493,17 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
 }
 
 extension XPCDistributedActorSystem: DependencyKey {
-    public static var liveValue: XPCDistributedActorSystem {
-        print(Thread.callStackSymbols.joined(separator: "\n"))
-        fatalError("XPCDistributedActorSystem must be provided via withDependencies")
+    public static var liveValue: XPCDistributedActorSystem? {
+        nil
     }
 }
 
 extension XPCDistributedActorSystem: TestDependencyKey {
-    public static var testValue: XPCDistributedActorSystem {
-        print(Thread.callStackSymbols.joined(separator: "\n"))
-        fatalError("XPCDistributedActorSystem must be provided via withDependencies")
+    public static var testValue: XPCDistributedActorSystem? {
+//        print(Thread.callStackSymbols.joined(separator: "\n"))
+//        fatalError("XPCDistributedActorSystem must be provided via withDependencies")
+//        return .init(actorCreationHandler: { _ in nil })
+        nil
     }
 }
 
@@ -501,25 +516,26 @@ extension AsyncSemaphore: @retroactive DependencyKey {
 
 extension AsyncSemaphore: @retroactive TestDependencyKey {
     public static var testValue: AsyncSemaphore {
-        print(Thread.callStackSymbols.joined(separator: "\n"))
-        fatalError("XPCDistributedActorSystem must be provided via withDependencies")
+//        print(Thread.callStackSymbols.joined(separator: "\n"))
+//        fatalError("XPCDistributedActorSystem must be provided via withDependencies")
+        .init(value: 1)
     }
 }
 
-private extension DependencyValues {
+extension DependencyValues {
     var dasAsyncStreamCodableSemaphore: AsyncSemaphore {
         get { self[AsyncSemaphore.self] }
         set { self[AsyncSemaphore.self] = newValue }
     }
 
-    var distributedActorSystem: XPCDistributedActorSystem {
+    var distributedActorSystem: XPCDistributedActorSystem? {
         get { self[XPCDistributedActorSystem.self] }
         set { self[XPCDistributedActorSystem.self] = newValue }
     }
 }
 
 private actor ActorCreationManager {
-    private var creatingActors: Set<XPCDistributedActorSystem.ActorID> = []
+    private let createSemaphore: AsyncSemaphore = .init(value: 1)
 
     func getOrCreateActor(
         id: XPCDistributedActorSystem.ActorID,
@@ -533,21 +549,8 @@ private actor ActorCreationManager {
             return existing
         }
 
-        // Check if already creating
-        if creatingActors.contains(id) {
-            // Wait a bit and check again
-            try await Task.sleep(for: .milliseconds(10))
-            return try await getOrCreateActor(id: id, system: system, handler: handler)
-        }
-
-        // Mark as creating
-        creatingActors.insert(id)
-        defer { creatingActors.remove(id) }
-
-        // Double check after marking
-        if let existing = system.liveActorStorage.get(id) {
-            return existing
-        }
+        try await createSemaphore.waitUnlessCancelled()
+        defer { createSemaphore.signal() }
 
         // Create the actor
         let newActor = try await XPCDistributedActorSystem.$pendingActorID.withValue(id) {
@@ -561,5 +564,30 @@ private actor ActorCreationManager {
         }
 
         return newActor
+    }
+}
+
+private actor CodableAsyncStreamManager<ActorID: Equatable> {
+    private var codableAsyncStreams: [any Identifiable<ActorID>] = .init()
+
+    private let casSemaphore: AsyncSemaphore = .init(value: 1)
+    private let id: UUID = .init()
+
+    func storeCodableAsyncStream(_ cas: any Identifiable<ActorID>) async {
+        await casSemaphore.wait()
+        defer { casSemaphore.signal() }
+        codableAsyncStreams.append(cas)
+    }
+
+    func releaseCodableAsyncStream(_ id: ActorID) async {
+        await casSemaphore.wait()
+        defer { casSemaphore.signal() }
+        codableAsyncStreams.removeAll(where: { $0.id == id })
+    }
+
+    func countCodableAsyncStreams() async -> Int {
+        await casSemaphore.wait()
+        defer { casSemaphore.signal() }
+        return codableAsyncStreams.count
     }
 }

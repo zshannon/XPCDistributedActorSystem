@@ -6,9 +6,7 @@ public actor XPCServiceListener {
     }
 
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: SwiftyXPC.XPCConnection? {
-        didSet { actorSystem.setConnection(lastConnection) }
-    }
+    var lastConnection: SwiftyXPC.XPCConnection?
 
     private let listener: XPCListener
 
