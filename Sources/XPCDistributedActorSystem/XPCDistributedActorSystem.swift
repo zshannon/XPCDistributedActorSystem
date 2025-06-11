@@ -334,6 +334,34 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
         try await startListening(listener: listener)
     }
 
+    /// Convenience initializer for daemon services
+    public init(
+        daemonServiceName: String,
+        codeSigningRequirement: CodeSigningRequirement? = nil,
+        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+    ) async throws {
+        let listener = try SwiftyXPC.XPCListener(
+            type: .machService(name: daemonServiceName),
+            codeSigningRequirement: codeSigningRequirement?.requirement
+        )
+        super.init(actorCreationHandler: actorCreationHandler)
+        try await startListening(listener: listener)
+    }
+
+    /// Convenience initializer for XPC services
+    public init(
+        xpcService: Bool = true,
+        codeSigningRequirement: CodeSigningRequirement? = nil,
+        actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
+    ) async throws {
+        let listener = try SwiftyXPC.XPCListener(
+            type: .service,
+            codeSigningRequirement: codeSigningRequirement?.requirement
+        )
+        super.init(actorCreationHandler: actorCreationHandler)
+        try await startListening(listener: listener)
+    }
+
     private func startListening(listener: SwiftyXPC.XPCListener) async throws {
         await withCheckedContinuation { continuation in
             Task { @XPCActor in

@@ -4,7 +4,7 @@ import Calculator
 
 struct ContentView: View
 {
-    @State private var xpc: XPCDistributedActorSystem?
+    @State private var xpc: XPCDistributedActorClient?
     @State private var calculator: Calculator? // remote actor in the XPC service
     @State private var output: String = "No calculation done"
     
@@ -43,10 +43,14 @@ struct ContentView: View
         }
         .disabled(self.calculator == nil)
         .padding()
-        .onAppear(perform: configureXPCService)
+        .onAppear {
+            Task {
+                await configureXPCService()
+            }
+        }
     }
     
-    func configureXPCService()
+    func configureXPCService() async
     {
         guard let serviceIdentifier = Bundle.main.firstXPCServiceIdentifier() else {
             print("Failed to find a valid XPC service in the app's bundle.")
@@ -64,13 +68,16 @@ struct ContentView: View
             return
         }
 
-        let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: serviceIdentifier), codeSigningRequirement: codeSigningRequirement)
-        self.xpc = xpc
-        
         do {
-            self.calculator = try Calculator.resolve(id: .init(1), using: xpc)
+            let xpc = try await XPCDistributedActorClient(
+                connectionType: .xpcService(serviceName: serviceIdentifier),
+                codeSigningRequirement: codeSigningRequirement
+            )
+            self.xpc = xpc
+            
+            self.calculator = try Calculator.resolve(id: .init(), using: xpc)
         } catch {
-            print("Failed to find remote actor:", error.localizedDescription)
+            print("Failed to set up XPC client or resolve remote actor:", error.localizedDescription)
         }
         
         // The XPC service process won't be launched until the first call to the remote actor

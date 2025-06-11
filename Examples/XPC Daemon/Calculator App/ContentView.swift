@@ -7,7 +7,7 @@ struct ContentView: View
 {
     let service = SMAppService.daemon(plistName: "com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist")
 
-    @State private var xpc: XPCDistributedActorSystem?
+    @State private var xpc: XPCDistributedActorClient?
     @State private var calculator: Calculator? // remote actor in the daemon
     @State private var output: String = "No calculation done"
     @State private var daemonStatus = "Unknown"
@@ -128,14 +128,16 @@ struct ContentView: View
         self.daemonStatus = service.status.description
 
         if service.status == .enabled {
-            configureXPCService()
+            Task {
+                await configureXPCService()
+            }
         } else {
             self.xpc = nil
             self.calculator = nil
         }
     }
     
-    func configureXPCService()
+    func configureXPCService() async
     {
         let codeSigningRequirement: CodeSigningRequirement
         
@@ -146,13 +148,16 @@ struct ContentView: View
             return
         }
         
-        let xpc = XPCDistributedActorSystem(mode: .connectingToDaemon(serviceName: daemonXPCServiceIdentifier), codeSigningRequirement: codeSigningRequirement)
-        self.xpc = xpc
-        
         do {
-            self.calculator = try Calculator.resolve(id: .init(1), using: xpc)
+            let xpc = try await XPCDistributedActorClient(
+                connectionType: .daemon(serviceName: daemonXPCServiceIdentifier),
+                codeSigningRequirement: codeSigningRequirement
+            )
+            self.xpc = xpc
+            
+            self.calculator = try Calculator.resolve(id: .init(), using: xpc)
         } catch {
-            print("Failed to find remote actor:", error.localizedDescription)
+            print("Failed to set up XPC client or resolve remote actor:", error.localizedDescription)
         }
     }
 }
