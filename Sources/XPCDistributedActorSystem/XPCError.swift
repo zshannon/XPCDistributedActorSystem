@@ -67,8 +67,8 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError {
             category = .connectionInvalid
         } else if error === XPC_ERROR_TERMINATION_IMMINENT {
             category = .terminationImminent
-        // } else if #available(macOS 12.0, *), error === XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT {
-        //     category = .codeSignatureCheckFailed
+            // } else if #available(macOS 12.0, *), error === XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT {
+            //     category = .codeSignatureCheckFailed
         } else {
             category = .unknown
         }

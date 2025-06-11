@@ -6,9 +6,7 @@ public actor XPCServiceListener {
     }
 
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: XPCSession? {
-        didSet { actorSystem.setConnection(lastConnection) }
-    }
+    var lastConnection: XPCSession?
 
     private let listener: XPCListener
 
