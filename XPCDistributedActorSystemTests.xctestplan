@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "4A4FD4D8-A8BB-4603-A5D3-59AA30A69047",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "XPCDistributedActorSystemTests",
+        "name" : "XPCDistributedActorSystemTests"
+      }
+    }
+  ],
+  "version" : 1
+}
