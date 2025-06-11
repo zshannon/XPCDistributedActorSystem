@@ -1,5 +1,5 @@
-import Foundation
 import Calculator
+import Foundation
 import XPCDistributedActorSystem
 
 let server = try await XPCDistributedActorServer(
@@ -7,6 +7,6 @@ let server = try await XPCDistributedActorServer(
     codeSigningRequirement: .sameTeam,
     actorCreationHandler: { system in
         // Create a Calculator actor when one isn't found for the given ID
-        return Calculator(actorSystem: system)
-    }
+        Calculator(actorSystem: system)
+    },
 )

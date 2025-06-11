@@ -1,10 +1,9 @@
-import SwiftUI
-import XPCDistributedActorSystem
 import Calculator
 import ServiceManagement
+import SwiftUI
+import XPCDistributedActorSystem
 
-struct ContentView: View
-{
+struct ContentView: View {
     let service = SMAppService.daemon(plistName: "com.yourcompany.XPCDistributedActorExample.CalculatorDaemon.plist")
 
     @State private var xpc: XPCDistributedActorClient?
@@ -18,7 +17,9 @@ struct ContentView: View
                 Label("Important", systemImage: "exclamationmark.triangle")
                     .bold()
                     .font(.title)
-                Text("If you click \"Install Launch Daemon\", a LaunchDaemon process with root privileges will be installed and started. This process will be kept running and automatically restarted if you don't uninstall it by clicking \"Uninstall Launch Daemon\".")
+                Text(
+                    "If you click \"Install Launch Daemon\", a LaunchDaemon process with root privileges will be installed and started. This process will be kept running and automatically restarted if you don't uninstall it by clicking \"Uninstall Launch Daemon\".",
+                )
                 Text("Make sure to uninstall it when you're done testing.")
             }
             .padding()
@@ -77,8 +78,8 @@ struct ContentView: View
                                 output = "Calculating..."
                                 Task {
                                     do {
-                                        let number1 = Int.random(in: 0..<1000)
-                                        let number2 = Int.random(in: 0..<1000)
+                                        let number1 = Int.random(in: 0 ..< 1000)
+                                        let number2 = Int.random(in: 0 ..< 1000)
                                         let result = try await calculator.add(number1, number2)
                                         output = "\(number1) + \(number2) = \(result)"
                                     } catch {
@@ -122,40 +123,38 @@ struct ContentView: View
             }
         }
     }
-    
-    func updateDaemonStatus()
-    {
-        self.daemonStatus = service.status.description
+
+    func updateDaemonStatus() {
+        daemonStatus = service.status.description
 
         if service.status == .enabled {
             Task {
                 await configureXPCService()
             }
         } else {
-            self.xpc = nil
-            self.calculator = nil
+            xpc = nil
+            calculator = nil
         }
     }
-    
-    func configureXPCService() async
-    {
+
+    func configureXPCService() async {
         let codeSigningRequirement: CodeSigningRequirement
-        
+
         do {
             codeSigningRequirement = try CodeSigningRequirement.sameTeam
         } catch {
             print("Failed to set up code signing requirement:", error.localizedDescription)
             return
         }
-        
+
         do {
             let xpc = try await XPCDistributedActorClient(
                 connectionType: .daemon(serviceName: daemonXPCServiceIdentifier),
-                codeSigningRequirement: codeSigningRequirement
+                codeSigningRequirement: codeSigningRequirement,
             )
             self.xpc = xpc
-            
-            self.calculator = try Calculator.resolve(id: .init(), using: xpc)
+
+            calculator = try Calculator.resolve(id: .init(), using: xpc)
         } catch {
             print("Failed to set up XPC client or resolve remote actor:", error.localizedDescription)
         }

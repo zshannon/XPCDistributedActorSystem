@@ -12,7 +12,9 @@ private actor ActorCreationManager {
         id: XPCDistributedActorSystem.ActorID,
         system: XPCDistributedActorSystem,
         handler: @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
-    ) async throws -> (any DistributedActor)? {
+    )
+        async throws -> (any DistributedActor)?
+    {
         // Check if already exists
         if let existing = system.liveActorStorage.get(id) {
             return existing
@@ -70,9 +72,9 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
                 "No active connection has been found"
             case .failedToFindValueInResponse:
                 "Failed to find value in response"
-            case .errorFromRemoteActor(let string):
+            case let .errorFromRemoteActor(string):
                 "Remote: \(string)"
-            case .failedToFindActorForId(let actorID):
+            case let .failedToFindActorForId(actorID):
                 "Failed to find actor for ID \(actorID)"
             }
         }
@@ -101,18 +103,18 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
 
     init(actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?) {
         self.actorCreationHandler = actorCreationHandler
-        self.actorManager = ActorCreationManager()
+        actorManager = ActorCreationManager()
     }
 
     func handleInvocation(request: InvocationRequest) async -> InvocationResponse<Data> {
         do {
-            var localActor = self.liveActorStorage.get(request.actorId)
+            var localActor = liveActorStorage.get(request.actorId)
 
-            if localActor == nil, let actorCreationHandler = self.actorCreationHandler {
-                localActor = try await self.actorManager.getOrCreateActor(
+            if localActor == nil, let actorCreationHandler {
+                localActor = try await actorManager.getOrCreateActor(
                     id: request.actorId,
                     system: self,
-                    handler: actorCreationHandler
+                    handler: actorCreationHandler,
                 )
             }
 
@@ -123,11 +125,11 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
             var invocationDecoder = InvocationDecoder(system: self, request: request)
             let handler = InvocationResultHandler()
 
-            try await self.executeDistributedTarget(
+            try await executeDistributedTarget(
                 on: localActor,
                 target: RemoteCallTarget(request.target),
                 invocationDecoder: &invocationDecoder,
-                handler: handler
+                handler: handler,
             )
 
             return handler.response ?? InvocationResponse<Data>(error: nil, value: nil)
@@ -145,12 +147,14 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     }
 
     public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
-    where Act: DistributedActor, ActorID == Act.ID {
+        where Act: DistributedActor, ActorID == Act.ID
+    {
         liveActorStorage.get(id, as: actorType.self)
     }
 
     public func assignID<Act>(_ actorType: Act.Type) -> ActorID
-    where Act: DistributedActor, UUID == Act.ID {
+        where Act: DistributedActor, UUID == Act.ID
+    {
         // Check if there's a pending actor ID to use (for actor creation handler)
         if let pendingID = XPCDistributedActorSystem.pendingActorID {
             return pendingID
@@ -180,22 +184,26 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     }
 
     // Abstract methods to be implemented by subclasses
-    public func remoteCall<Act, Err, Res>(
-        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type, returning: Res.Type
-    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
+    public func remoteCall<Act, Res>(
+        on _: Act, target _: RemoteCallTarget, invocation _: inout InvocationEncoder,
+        throwing _: (some Error).Type, returning _: Res.Type
+    )
+        async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Res: Codable
+    {
         fatalError("Must be implemented by subclass")
     }
 
-    public func remoteCallVoid<Act, Err>(
-        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type
-    ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
+    public func remoteCallVoid<Act>(
+        on _: Act, target _: RemoteCallTarget, invocation _: inout InvocationEncoder,
+        throwing _: (some Error).Type
+    )
+        async throws where Act: DistributedActor, Act.ID == ActorID
+    {
         fatalError("Must be implemented by subclass")
     }
 
     // For backwards compatibility with XPCServiceListener
-    nonisolated func setConnection(_ connection: SwiftyXPC.XPCConnection?) {
+    nonisolated func setConnection(_: SwiftyXPC.XPCConnection?) {
         // This method was used by XPCServiceListener but is no longer needed
         // in the new architecture since clients and servers handle connections internally
     }
@@ -218,7 +226,8 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem {
         connectionType: ConnectionType,
         codeSigningRequirement: CodeSigningRequirement? = nil,
         actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
-    ) async throws {
+    )
+    async throws {
         self.codeSigningRequirement = codeSigningRequirement
         self.connectionType = connectionType
         super.init(actorCreationHandler: actorCreationHandler)
@@ -246,26 +255,26 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem {
 
     @XPCActor private func createConnection() throws -> SwiftyXPC.XPCConnection {
         switch connectionType {
-        case .daemon(let serviceName):
-            return try SwiftyXPC.XPCConnection(
+        case let .daemon(serviceName):
+            try SwiftyXPC.XPCConnection(
                 type: .remoteMachService(serviceName: serviceName, isPrivilegedHelperTool: true),
-                codeSigningRequirement: codeSigningRequirement?.requirement
+                codeSigningRequirement: codeSigningRequirement?.requirement,
             )
-        case .xpcService(let serviceName):
-            return try SwiftyXPC.XPCConnection(
+        case let .xpcService(serviceName):
+            try SwiftyXPC.XPCConnection(
                 type: .remoteService(bundleID: serviceName),
-                codeSigningRequirement: codeSigningRequirement?.requirement
+                codeSigningRequirement: codeSigningRequirement?.requirement,
             )
-        case .endpoint(let endpoint):
-            return try SwiftyXPC.XPCConnection(
+        case let .endpoint(endpoint):
+            try SwiftyXPC.XPCConnection(
                 type: .remoteServiceFromEndpoint(endpoint),
-                codeSigningRequirement: codeSigningRequirement?.requirement
+                codeSigningRequirement: codeSigningRequirement?.requirement,
             )
         }
     }
 
     @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
-        connection.errorHandler = { [weak self] _, error in
+        connection.errorHandler = { [weak self] _, _ in
             guard let self else { return }
             Task { @XPCActor in
                 self.onConnectionInvalidated()
@@ -274,23 +283,27 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem {
     }
 
     @XPCActor private func onConnectionInvalidated() {
-        self.state.withLock { $0 = .disconnected }
+        state.withLock { $0 = .disconnected }
         // Automatically reconnect for client connections
         Task {
             try? await connect()
         }
     }
 
-    public override func remoteCall<Act, Err, Res>(
+    override public func remoteCall<Act, Res>(
         on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type, returning: Res.Type
-    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
+        throwing _: (some Error).Type, returning _: Res.Type
+    )
+        async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Res: Codable
+    {
         guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
 
         let request = InvocationRequest(
-            actorId: actor.id, target: target.identifier, invocation: invocation)
+            actorId: actor.id, target: target.identifier, invocation: invocation,
+        )
         let response: InvocationResponse<Data> = try await xpcConnection.sendMessage(
-            name: "invoke", request: request)
+            name: "invoke", request: request,
+        )
 
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
@@ -303,16 +316,20 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem {
         return try JSONDecoder().decode(Res.self, from: valueData)
     }
 
-    public override func remoteCallVoid<Act, Err>(
+    override public func remoteCallVoid<Act>(
         on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type
-    ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
+        throwing _: (some Error).Type
+    )
+        async throws where Act: DistributedActor, Act.ID == ActorID
+    {
         guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
 
         let request = InvocationRequest(
-            actorId: actor.id, target: target.identifier, invocation: invocation)
+            actorId: actor.id, target: target.identifier, invocation: invocation,
+        )
         let response: InvocationResponse<Data> = try await xpcConnection.sendMessage(
-            name: "invoke", request: request)
+            name: "invoke", request: request,
+        )
 
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
@@ -329,7 +346,8 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
     public init(
         listener: SwiftyXPC.XPCListener,
         actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
-    ) async throws {
+    )
+    async throws {
         super.init(actorCreationHandler: actorCreationHandler)
         try await startListening(listener: listener)
     }
@@ -339,10 +357,11 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
         daemonServiceName: String,
         codeSigningRequirement: CodeSigningRequirement? = nil,
         actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
-    ) async throws {
+    )
+    async throws {
         let listener = try SwiftyXPC.XPCListener(
             type: .machService(name: daemonServiceName),
-            codeSigningRequirement: codeSigningRequirement?.requirement
+            codeSigningRequirement: codeSigningRequirement?.requirement,
         )
         super.init(actorCreationHandler: actorCreationHandler)
         try await startListening(listener: listener)
@@ -350,13 +369,14 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
 
     /// Convenience initializer for XPC services
     public init(
-        xpcService: Bool = true,
+        xpcService _: Bool = true,
         codeSigningRequirement: CodeSigningRequirement? = nil,
         actorCreationHandler: (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)? = nil
-    ) async throws {
+    )
+    async throws {
         let listener = try SwiftyXPC.XPCListener(
             type: .service,
-            codeSigningRequirement: codeSigningRequirement?.requirement
+            codeSigningRequirement: codeSigningRequirement?.requirement,
         )
         super.init(actorCreationHandler: actorCreationHandler)
         try await startListening(listener: listener)
@@ -377,7 +397,7 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
 
     @XPCActor private func setupListener(_ listener: SwiftyXPC.XPCListener) {
         listener.activatedConnectionHandler = { [weak self] newConnection in
-            guard let self = self else { return }
+            guard let self else { return }
             Task { @XPCActor in
                 self.handleNewConnection(newConnection)
             }
@@ -398,7 +418,7 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
     }
 
     @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
-        connection.errorHandler = { [weak self] _, error in
+        connection.errorHandler = { [weak self] _, _ in
             guard let self else { return }
             Task { @XPCActor in
                 self.removeConnection(connection)
@@ -406,8 +426,8 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
         }
 
         connection.setMessageHandler(name: "invoke") {
-            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
-                async throws -> InvocationResponse<Data> in
+            [weak self] (_: SwiftyXPC.XPCConnection, request: InvocationRequest)
+            async throws -> InvocationResponse<Data> in
             guard let self else {
                 return InvocationResponse<Data>(error: "Server unavailable", value: nil)
             }
@@ -419,19 +439,23 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem {
         activeConnections.removeAll { $0 === connection }
     }
 
-    public override func remoteCall<Act, Err, Res>(
-        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type, returning: Res.Type
-    ) async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Err: Error, Res: Codable {
+    override public func remoteCall<Act, Res>(
+        on _: Act, target _: RemoteCallTarget, invocation _: inout InvocationEncoder,
+        throwing _: (some Error).Type, returning _: Res.Type
+    )
+        async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Res: Codable
+    {
         // Server systems typically don't make remote calls, but if needed, this could be implemented
         // to call out to other services
         throw ProtocolError.noConnection
     }
 
-    public override func remoteCallVoid<Act, Err>(
-        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
-        throwing: Err.Type
-    ) async throws where Act: DistributedActor, Act.ID == ActorID, Err: Error {
+    override public func remoteCallVoid<Act>(
+        on _: Act, target _: RemoteCallTarget, invocation _: inout InvocationEncoder,
+        throwing _: (some Error).Type
+    )
+        async throws where Act: DistributedActor, Act.ID == ActorID
+    {
         // Server systems typically don't make remote calls, but if needed, this could be implemented
         // to call out to other services
         throw ProtocolError.noConnection

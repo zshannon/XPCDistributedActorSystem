@@ -5,7 +5,7 @@ public final class InvocationResultHandler: DistributedTargetInvocationResultHan
     public typealias SerializationRequirement = any Codable
     private(set) var response: InvocationResponse<Data>?
 
-    public func onReturn<V: Codable>(value: V) async throws {
+    public func onReturn(value: some Codable) async throws {
         let data = try JSONEncoder().encode(value)
         response = InvocationResponse(value: data)
     }
@@ -14,7 +14,7 @@ public final class InvocationResultHandler: DistributedTargetInvocationResultHan
         response = InvocationResponse<Data>(error: nil, value: nil)
     }
 
-    public func onThrow<Err>(error: Err) async throws where Err: Error {
+    public func onThrow(error: some Error) async throws {
         response = InvocationResponse<Data>(error: String(describing: error), value: nil)
     }
 }

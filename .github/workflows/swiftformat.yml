@@ -1,0 +1,36 @@
+name: SwiftFormat
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**/*.swift'
+
+jobs:
+  swiftformat:
+    name: SwiftFormat Check
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Cache Mint
+      uses: actions/cache@v4
+      with:
+        path: ~/.mint
+        key: ${{ runner.os }}-mint-${{ hashFiles('Mintfile') }}
+        restore-keys: |
+          ${{ runner.os }}-mint-
+    
+    - name: Install Mint
+      run: |
+        brew install mint
+        
+    - name: Install SwiftFormat from Mintfile
+      run: |
+        mint bootstrap
+        
+    - name: Run SwiftFormat
+      run: |
+        mint run SwiftFormat --lint --verbose .

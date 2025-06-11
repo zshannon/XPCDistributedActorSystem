@@ -9,6 +9,7 @@ public actor XPCServiceListener {
     var lastConnection: SwiftyXPC.XPCConnection? {
         didSet { actorSystem.setConnection(lastConnection) }
     }
+
     private let listener: XPCListener
 
     public init(listener: XPCListener, actorSystem: XPCDistributedActorSystem) async throws {
@@ -30,6 +31,6 @@ public actor XPCServiceListener {
         if let lastConnection {
             try? await lastConnection.cancel()
         }
-        self.lastConnection = connection
+        lastConnection = connection
     }
 }

@@ -1,10 +1,8 @@
 import Foundation
 import XPC
 
-public struct XPCError: Error, Codable, Sendable, LocalizedError
-{
-    public enum Category: Codable, Sendable
-    {
+public struct XPCError: Error, Codable, Sendable, LocalizedError {
+    public enum Category: Codable, Sendable {
         case connectionInterrupted
         case connectionInvalid
         case terminationImminent
@@ -15,15 +13,15 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
         case unknown
         case connectionNotReady
     }
-    
+
     public let category: Category
     public let nativeErrorDescription: String?
-    
+
     public var errorDescription: String? {
         if let nativeErrorDescription {
             return nativeErrorDescription
         }
-        
+
         return switch category {
         case .connectionInterrupted:
             "Connection interrupted"
@@ -45,33 +43,34 @@ public struct XPCError: Error, Codable, Sendable, LocalizedError
             "Connection not ready"
         }
     }
-    
-    init(_ category: Category)
-    {
+
+    init(_ category: Category) {
         self.category = category
-        self.nativeErrorDescription = nil
+        nativeErrorDescription = nil
     }
 
-    init(error: xpc_object_t)
-    {
-        let description: String? = if let descriptionFromXpc = xpc_dictionary_get_string(error, XPC_ERROR_KEY_DESCRIPTION) {
+    init(error: xpc_object_t) {
+        let description: String? = if let descriptionFromXpc = xpc_dictionary_get_string(
+            error,
+            XPC_ERROR_KEY_DESCRIPTION,
+        ) {
             String(cString: descriptionFromXpc)
         } else {
             nil
         }
-        
-        self.nativeErrorDescription = description
-        
+
+        nativeErrorDescription = description
+
         if error === XPC_ERROR_CONNECTION_INTERRUPTED {
-            self.category = .connectionInterrupted
+            category = .connectionInterrupted
         } else if error === XPC_ERROR_CONNECTION_INVALID {
-            self.category = .connectionInvalid
+            category = .connectionInvalid
         } else if error === XPC_ERROR_TERMINATION_IMMINENT {
-            self.category = .terminationImminent
+            category = .terminationImminent
         } else if error === XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT {
-            self.category = .codeSignatureCheckFailed
+            category = .codeSignatureCheckFailed
         } else {
-            self.category = .unknown
+            category = .unknown
         }
     }
 }

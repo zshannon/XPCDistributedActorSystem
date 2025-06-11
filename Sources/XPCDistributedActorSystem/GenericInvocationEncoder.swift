@@ -1,8 +1,7 @@
 import Distributed
 import Foundation
 
-public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Sendable
-{
+public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Sendable {
     static let encoder = JSONEncoder()
 
     enum Error: Swift.Error {
@@ -16,25 +15,21 @@ public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Send
     var returnType: String? = nil
     var errorType: String? = nil
 
-    public mutating func recordArgument<Value: Codable>(_ argument: RemoteCallArgument<Value>) throws
-    {
-        arguments.append(try Self.encoder.encode(argument.value))
+    public mutating func recordArgument(_ argument: RemoteCallArgument<some Codable>) throws {
+        try arguments.append(Self.encoder.encode(argument.value))
     }
 
-    public mutating func recordGenericSubstitution<T>(_ type: T.Type) throws
-    {
+    public mutating func recordGenericSubstitution(_ type: (some Any).Type) throws {
         guard let mangledName = _mangledTypeName(type) else { throw Error.failedToFindMangedName }
         generics.append(mangledName)
     }
 
-    public mutating func recordReturnType<R: Codable>(_ type: R.Type) throws
-    {
-        self.returnType = _mangledTypeName(type)
+    public mutating func recordReturnType(_ type: (some Codable).Type) throws {
+        returnType = _mangledTypeName(type)
     }
 
-    public mutating func recordErrorType<E: Swift.Error>(_ type: E.Type) throws
-    {
-        self.errorType = _mangledTypeName(type)
+    public mutating func recordErrorType(_ type: (some Swift.Error).Type) throws {
+        errorType = _mangledTypeName(type)
     }
 
     public mutating func doneRecording() throws {}
