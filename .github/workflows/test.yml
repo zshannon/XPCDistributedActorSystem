@@ -32,7 +32,13 @@ jobs:
             ${{ runner.os }}-swift-
 
       - name: Build
+        env:
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
         run: swift build --verbose
 
       - name: Run Tests
+        env:
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
         run: swift test --verbose --parallel
