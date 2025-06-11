@@ -6,16 +6,16 @@ import PackageDescription
 let package = Package(
     name: "XPCDistributedActorSystem",
     platforms: [
-        .macOS(.v15),
+        .macOS(.v15)
     ],
     products: [
-        .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"]),
+        .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/Semaphore", from: "0.1.0"),
         .package(url: "https://github.com/mattmassicotte/Queue", from: "0.2.1"),
         .package(
-            url: "https://github.com/pointfreeco/swift-dependencies", .upToNextMajor(from: "1.9.1"),
+            url: "https://github.com/pointfreeco/swift-dependencies", .upToNextMajor(from: "1.9.2"),
         ),
         .package(url: "https://github.com/zshannon/SwiftyXPC", from: "0.6.2"),
     ],
