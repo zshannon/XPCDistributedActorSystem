@@ -19,6 +19,12 @@ final class LiveActorStorage: Sendable {
         }
     }
 
+    func count() -> Int {
+        actors.withLock {
+            $0.count
+        }
+    }
+    
     func get(_ id: XPCDistributedActorSystem.ActorID) -> (any DistributedActor)? {
         actors.withLock {
             $0[id]?.actor

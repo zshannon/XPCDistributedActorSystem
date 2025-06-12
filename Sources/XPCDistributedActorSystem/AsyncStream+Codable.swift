@@ -17,8 +17,8 @@ final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Co
     func next() async -> Element? {
         guard var iterator else { return nil }
         guard let next = await iterator.next() else {
-            @Dependency(\.distributedActorSystem) var das
-            await das?.releaseCodableAsyncStream(id)
+//            @Dependency(\.distributedActorSystem) var das
+//            await das?.releaseCodableAsyncStream(id)
             return nil
         }
         return next
@@ -26,8 +26,8 @@ final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Co
 
     deinit {
         Task { [id] in
-            @Dependency(\.distributedActorSystem) var das
-            await das?.releaseCodableAsyncStream(id)
+//            @Dependency(\.distributedActorSystem) var das
+//            await das?.releaseCodableAsyncStream(id)
         }
     }
 }
@@ -66,10 +66,10 @@ distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable 
         Task {
             await whenLocal { local in
                 await local.store(stream: stream)
-                @Dependency(\.distributedActorSystem) var das
-                await das?.storeCodableAsyncStream(local)
-                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-                semaphore.signal()
+//                @Dependency(\.distributedActorSystem) var das
+//                await das?.storeCodableAsyncStream(local)
+//                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
+//                semaphore.signal()
             }
         }
     }
@@ -89,23 +89,23 @@ extension AsyncStream: Codable where Element: Codable {
         let id = try container.decode(XPCDistributedActorSystem.ActorID.self)
         self.init(Element.self, bufferingPolicy: .bufferingNewest(128)) { continuation in
             let forwardingTask = Task {
-                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-                @Dependency(\.distributedActorSystem) var das
-                guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
-                let stream = try CodableAsyncStream<Element>.resolve(id: id, using: das)
-                semaphore.signal()
+//                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
+//                @Dependency(\.distributedActorSystem) var das
+//                guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
+//                let stream = try CodableAsyncStream<Element>.resolve(id: id, using: das)
+//                semaphore.signal()
                 await withTaskCancellationHandler {
                     do {
-                        while let element = try await stream.next() {
-                            continuation.yield(element)
-                        }
+//                        while let element = try await stream.next() {
+//                            continuation.yield(element)
+//                        }
                     } catch {
                         // continuation.finish(throwing: error)
                     }
                     continuation.finish()
                 } onCancel: {
                     Task {
-                        await das.releaseCodableAsyncStream(id)
+//                        await das.releaseCodableAsyncStream(id)
                     }
                 }
             }
@@ -116,12 +116,12 @@ extension AsyncStream: Codable where Element: Codable {
     }
 
     public func encode(to encoder: Encoder) throws where Element: Sendable {
-        @Dependency(\.distributedActorSystem) var das
-        guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
-        let cas = CodableAsyncStream<Element>(actorSystem: das)
-        cas.store(stream: self)
+//        @Dependency(\.distributedActorSystem) var das
+//        guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
+//        let cas = CodableAsyncStream<Element>(actorSystem: das)
+//        cas.store(stream: self)
         var container = encoder.singleValueContainer()
-        try container.encode(cas.id)
+//        try container.encode(cas.id)
     }
 }
 
