@@ -129,3 +129,37 @@ extension AsyncStream: Codable where Element: Codable {
 protocol _IsAsyncStreamOfCodable {}
 extension AsyncStream: _IsAsyncStreamOfCodable where Element: Codable {}
 extension AsyncStream: Sendable where Element: Sendable {}
+
+/// Type‑erased box that keeps any `CodableAsyncStream` alive
+/// while exposing only its `id`.  Needed so we can store streams
+/// with heterogeneous `Element` types in the same collection.
+private struct AnyCodableAsyncStream: @unchecked Sendable {
+    let id: XPCDistributedActorSystem.ActorID
+    private let _boxed: Any // strong reference keeps the actor alive
+
+    init<E: Codable & Sendable>(_ base: CodableAsyncStream<E>) {
+        id = base.id
+        _boxed = base
+    }
+}
+
+/// Manages a *heterogeneous* set of `CodableAsyncStream`s.
+/// Each stored stream can have a different `Element` type.
+actor CodableAsyncStreamManager {
+    private var storage: [AnyCodableAsyncStream] = []
+
+    /// Store a new stream (any element type) so that it stays alive.
+    func storeCodableAsyncStream<E: Codable & Sendable>(_ cas: CodableAsyncStream<E>) async {
+        storage.append(AnyCodableAsyncStream(cas))
+    }
+
+    /// Release a previously‑stored stream once its remote side finishes.
+    func releaseCodableAsyncStream(_ id: XPCDistributedActorSystem.ActorID) async {
+        storage.removeAll { $0.id == id }
+    }
+
+    /// Useful for diagnostics & testing.
+    func countCodableAsyncStreams() async -> Int {
+        storage.count
+    }
+}

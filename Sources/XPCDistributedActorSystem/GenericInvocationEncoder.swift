@@ -1,6 +1,7 @@
 import Dependencies
 import Distributed
 import Foundation
+import Semaphore
 
 public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Sendable {
     enum Error: Swift.Error {
@@ -16,14 +17,35 @@ public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Send
 
     private let actorSystem: XPCDistributedActorSystem
     private let encoder = JSONEncoder()
+    private let id: UUID = .init()
 
     init(actorSystem: XPCDistributedActorSystem) {
         self.actorSystem = actorSystem
     }
 
+    private var asyncStreamEncodingTasks: [Task<Void, Swift.Error>] = []
+    public func waitForAsyncStreamEncoding() async {
+        guard !asyncStreamEncodingTasks.isEmpty else { return }
+        await withTaskGroup { group in
+            for task in asyncStreamEncodingTasks {
+                group.addTask {
+                    try? await task.value
+                }
+            }
+            await group.waitForAll()
+        }
+    }
+    
     public mutating func recordArgument(_ argument: RemoteCallArgument<some Codable>) throws {
+        let semaphore: AsyncSemaphore = .init(value: 0)
+        if type(of: argument.value) is _IsAsyncStreamOfCodable.Type {
+            asyncStreamEncodingTasks.append(Task { [semaphore] in
+                try await semaphore.waitUnlessCancelled()
+            })
+        }
         try withDependencies {
             $0.distributedActorSystem = actorSystem
+            $0.dasAsyncStreamCodableSemaphore = semaphore
         } operation: {
             try arguments.append(encoder.encode(argument.value))
         }
