@@ -6,10 +6,10 @@ import PackageDescription
 let package = Package(
     name: "XPCDistributedActorSystem",
     platforms: [
-        .macOS(.v15)
+        .macOS(.v15),
     ],
     products: [
-        .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"])
+        .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/Semaphore", from: "0.1.0"),
