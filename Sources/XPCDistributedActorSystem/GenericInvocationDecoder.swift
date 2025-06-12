@@ -1,3 +1,4 @@
+import Dependencies
 import Distributed
 import Foundation
 
@@ -11,11 +12,13 @@ public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
     public typealias SerializationRequirement = any Codable
 
     private let request: InvocationRequest
+    private let system: XPCDistributedActorSystem
     private var argumentsIterator: Array<Data>.Iterator
 
-    init(system: any DistributedActorSystem, request: InvocationRequest) {
+    init(system: XPCDistributedActorSystem, request: InvocationRequest) {
         argumentsIterator = request.arguments.makeIterator()
         self.request = request
+        self.system = system
         Self.decoder.userInfo[.actorSystemKey] = system
     }
 
@@ -23,7 +26,11 @@ public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
         guard let data = argumentsIterator.next() else {
             throw Error.notEnoughArguments
         }
-        return try Self.decoder.decode(Argument.self, from: data)
+        return try withDependencies {
+            $0.actorSystem = system
+        } operation: {
+            try Self.decoder.decode(Argument.self, from: data)
+        }
     }
 
     public mutating func decodeGenericSubstitutions() throws -> [Any.Type] {

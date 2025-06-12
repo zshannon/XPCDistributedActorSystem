@@ -1,9 +1,6 @@
 import Dependencies
 import Distributed
 import Foundation
-import Semaphore
-@preconcurrency import SwiftyXPC
-import Synchronization
 
 public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Sendable {
     public enum State: Sendable {
@@ -38,75 +35,16 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public typealias ResultHandler = InvocationResultHandler
     public typealias SerializationRequirement = Codable
 
-    let liveActorStorage = LiveActorStorage()
-    let nextActorId: Mutex<[ObjectIdentifier: ActorID]> = .init([:])
-    let state: Mutex<State> = .init(.disconnected)
-    let actorCreationHandler:
-        (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?
+    var isServer: Bool { true }
 
-    // Strong references to actors created via handler to keep them alive
-    let createdActors: Mutex<[ActorID: any DistributedActor]> = .init([:])
-
-    // Actor to synchronize actor creation to prevent race conditions
-    private let actorManager: ActorCreationManager
-    private let codableAsyncStreamManager: CodableAsyncStreamManager<ActorID> = .init()
-
-    // Thread-local storage for overriding the next assigned ID
-    @TaskLocal static var pendingActorID: ActorID?
-
-    init(
-        actorCreationHandler: (
-            @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
-        )?
-    ) {
-        self.actorCreationHandler = actorCreationHandler
-        actorManager = ActorCreationManager()
+    public func actorReady<Act>(_: Act) where Act: DistributedActor, ActorID == Act.ID {
+        fatalError("subclass must override")
     }
 
-    func handleInvocation(request: InvocationRequest) async -> InvocationResponse<Data> {
-        do {
-            var localActor = liveActorStorage.get(request.actorId)
-
-            if localActor == nil, let actorCreationHandler {
-                localActor = try await withDependencies {
-                    $0.distributedActorSystem = self
-                } operation: {
-                    try await actorManager.getOrCreateActor(
-                        id: request.actorId,
-                        system: self,
-                        handler: actorCreationHandler,
-                    )
-                }
-            }
-
-            guard let localActor else {
-                throw ProtocolError.failedToFindActorForId(request.actorId)
-            }
-
-            var invocationDecoder = InvocationDecoder(system: self, request: request)
-            let handler = InvocationResultHandler()
-
-            let semaphore: AsyncSemaphore = .init(value: 0)
-            let handlerResponse = try await withDependencies {
-                $0.dasAsyncStreamCodableSemaphore = semaphore
-                $0.distributedActorSystem = self
-            } operation: {
-                try await executeDistributedTarget(
-                    on: localActor,
-                    target: RemoteCallTarget(request.target),
-                    invocationDecoder: &invocationDecoder,
-                    handler: handler,
-                )
-                return handler
-            }
-            if handlerResponse.responseType is _IsAsyncStreamOfCodable.Type {
-                // this is a hack to support async decoding of AsyncStream<any Codable>
-                try await semaphore.waitUnlessCancelled()
-            }
-            return handlerResponse.response ?? InvocationResponse<Data>(error: nil, value: nil)
-        } catch {
-            return InvocationResponse<Data>(error: error)
-        }
+    public func assignID<Act>(_: Act.Type) -> ActorID
+        where Act: DistributedActor, ActorID == Act.ID
+    {
+        fatalError("subclass must override")
     }
 
     public func makeInvocationEncoder() -> InvocationEncoder {
@@ -117,45 +55,14 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         }
     }
 
-    public func actorReady<Act>(_ actor: Act) where Act: DistributedActor, ActorID == Act.ID {
-        liveActorStorage.add(actor)
+    public func resignID(_: XPCDistributedActorSystem.ActorID) {
+        fatalError("subclass must override")
     }
 
-    public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
+    public func resolve<Act>(id _: ActorID, as _: Act.Type) throws -> Act?
         where Act: DistributedActor, ActorID == Act.ID
     {
-        liveActorStorage.get(id, as: actorType.self)
-    }
-
-    public func assignID<Act>(_ actorType: Act.Type) -> ActorID
-        where Act: DistributedActor, UUID == Act.ID
-    {
-        // Check if there's a pending actor ID to use (for actor creation handler)
-        if let pendingID = XPCDistributedActorSystem.pendingActorID {
-            return pendingID
-        }
-
-        var id: Act.ID?
-
-        nextActorId.withLock { dictionary in
-            let nextId: Act.ID = .init()
-            dictionary[ObjectIdentifier(actorType)] = nextId
-            id = nextId
-        }
-
-        guard let id else {
-            fatalError("Failed to assign ID")
-        }
-
-        return id
-    }
-
-    public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
-        liveActorStorage.remove(id)
-        // Also remove from strong reference storage
-        _ = createdActors.withLock { createdActors in
-            createdActors.removeValue(forKey: id)
-        }
+        fatalError("subclass must override")
     }
 
     // Abstract methods to be implemented by subclasses
