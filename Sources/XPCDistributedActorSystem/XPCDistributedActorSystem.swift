@@ -110,7 +110,11 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     }
 
     public func makeInvocationEncoder() -> InvocationEncoder {
-        InvocationEncoder()
+        withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            InvocationEncoder(actorSystem: self)
+        }
     }
 
     public func actorReady<Act>(_ actor: Act) where Act: DistributedActor, ActorID == Act.ID {
@@ -284,6 +288,20 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
                 self.onConnectionInvalidated()
             }
         }
+
+        connection.setMessageHandler(name: "invoke") {
+            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
+            async throws -> InvocationResponse<Data> in
+            guard let self else {
+                return InvocationResponse<Data>(error: "Server unavailable", value: nil)
+            }
+            return await withDependencies {
+                $0.connection = connection
+                $0.distributedActorSystem = self
+            } operation: {
+                await self.handleInvocation(request: request)
+            }
+        }
     }
 
     @XPCActor private func onConnectionInvalidated() {
@@ -302,14 +320,13 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
     {
         guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
 
-        let request = InvocationRequest(
-            actorId: actor.id, target: target.identifier, invocation: invocation,
-        )
-
         let response: InvocationResponse<Data> = try await withDependencies {
             $0.distributedActorSystem = self
         } operation: {
-            try await xpcConnection.sendMessage(
+            let request = InvocationRequest(
+                actorId: actor.id, target: target.identifier, invocation: invocation,
+            )
+            return try await xpcConnection.sendMessage(
                 name: "invoke", request: request,
             )
         }
@@ -344,12 +361,16 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
     {
         guard let xpcConnection = await xpcConnection else { throw ProtocolError.noConnection }
 
-        let request = InvocationRequest(
-            actorId: actor.id, target: target.identifier, invocation: invocation,
-        )
-        let response: InvocationResponse<Data> = try await xpcConnection.sendMessage(
-            name: "invoke", request: request,
-        )
+        let response: InvocationResponse<Data> = try await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            let request = InvocationRequest(
+                actorId: actor.id, target: target.identifier, invocation: invocation,
+            )
+            return try await xpcConnection.sendMessage(
+                name: "invoke", request: request,
+            )
+        }
 
         if let error = response.error {
             throw ProtocolError.errorFromRemoteActor(error)
@@ -452,12 +473,17 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
         }
 
         connection.setMessageHandler(name: "invoke") {
-            [weak self] (_: SwiftyXPC.XPCConnection, request: InvocationRequest)
+            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
             async throws -> InvocationResponse<Data> in
             guard let self else {
                 return InvocationResponse<Data>(error: "Server unavailable", value: nil)
             }
-            return await self.handleInvocation(request: request)
+            return await withDependencies {
+                $0.connection = connection
+                $0.distributedActorSystem = self
+            } operation: {
+                await self.handleInvocation(request: request)
+            }
         }
     }
 
@@ -466,14 +492,45 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     }
 
     override public func remoteCall<Act, Res>(
-        on _: Act, target _: RemoteCallTarget, invocation _: inout InvocationEncoder,
+        on actor: Act, target: RemoteCallTarget, invocation: inout InvocationEncoder,
         throwing _: (some Error).Type, returning _: Res.Type
     )
         async throws -> Res where Act: DistributedActor, Act.ID == ActorID, Res: Codable
     {
-        // Server systems typically don't make remote calls, but if needed, this could be implemented
-        // to call out to other services
-        throw ProtocolError.noConnection
+        @Dependency(\.connection) var xpcConnection
+        guard let xpcConnection else { throw ProtocolError.noConnection }
+
+        let response: InvocationResponse<Data> = try await withDependencies {
+            $0.distributedActorSystem = self
+        } operation: {
+            let request = InvocationRequest(
+                actorId: actor.id, target: target.identifier, invocation: invocation,
+            )
+            return try await xpcConnection.sendMessage(
+                name: "invoke", request: request,
+            )
+        }
+
+        if let error = response.error {
+            throw ProtocolError.errorFromRemoteActor(error)
+        }
+
+        guard let valueData = response.value else {
+            throw ProtocolError.failedToFindValueInResponse
+        }
+
+        let semaphore: AsyncSemaphore = .init(value: 0)
+        return try await withDependencies {
+            $0.dasAsyncStreamCodableSemaphore = semaphore
+            $0.distributedActorSystem = self
+        } operation: {
+            let result = try JSONDecoder().decode(Res.self, from: valueData)
+            if Res.self is _IsAsyncStreamOfCodable.Type {
+                // this is a hack to support async decoding of AsyncStream<any Codable>
+                try await semaphore.waitUnlessCancelled()
+            }
+            return result
+        }
     }
 
     override public func remoteCallVoid<Act>(
@@ -522,7 +579,17 @@ extension AsyncSemaphore: @retroactive TestDependencyKey {
     }
 }
 
+extension SwiftyXPC.XPCConnection: @retroactive DependencyKey {
+    public static var liveValue: XPCConnection? { nil }
+    public static var testValue: XPCConnection? { nil }
+}
+
 extension DependencyValues {
+    var connection: SwiftyXPC.XPCConnection? {
+        get { self[SwiftyXPC.XPCConnection.self] }
+        set { self[SwiftyXPC.XPCConnection.self] = newValue }
+    }
+
     var dasAsyncStreamCodableSemaphore: AsyncSemaphore {
         get { self[AsyncSemaphore.self] }
         set { self[AsyncSemaphore.self] = newValue }

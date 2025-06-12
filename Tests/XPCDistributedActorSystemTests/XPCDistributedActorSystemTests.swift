@@ -28,9 +28,7 @@ distributed actor Calculator {
 
     distributed func subtractStream(_ stream: AsyncStream<Int>) async -> Int {
         var output: Int?
-        print("stream", stream)
         for await value in stream {
-            print("value", value)
             if output == nil {
                 output = value
             } else {
@@ -130,50 +128,50 @@ struct XPCDistributedActorSystemTests {
         }
     }
 
-    // @Test("XPC AsyncStream input")
-    // func xpcAsyncStreamInputTest() async throws {
-    //     let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
-    //     try await confirmation("creates remote actor just once") { confirmCreatesActor in
-    //         let xpcHostDAS = try await XPCDistributedActorServer(
-    //             listener: listenerXPC,
-    //             actorCreationHandler: { system in
-    //                 // Create a Calculator actor when one isn't found for the given ID
-    //                 confirmCreatesActor()
-    //                 return Calculator(actorSystem: system)
-    //             },
-    //         )
+     @Test("XPC AsyncStream input")
+     func xpcAsyncStreamInputTest() async throws {
+         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+         try await confirmation("creates remote actor just once") { confirmCreatesActor in
+             let xpcHostDAS = try await XPCDistributedActorServer(
+                 listener: listenerXPC,
+                 actorCreationHandler: { system in
+                     // Create a Calculator actor when one isn't found for the given ID
+                     confirmCreatesActor()
+                     return Calculator(actorSystem: system)
+                 },
+             )
 
-    //         // Create a client actor system that connects to the listener's endpoint
-    //         let clientDAS = try await XPCDistributedActorClient(
-    //             connectionType: .endpoint(listenerXPC.endpoint),
-    //             codeSigningRequirement: nil,
-    //         )
+             // Create a client actor system that connects to the listener's endpoint
+             let clientDAS = try await XPCDistributedActorClient(
+                 connectionType: .endpoint(listenerXPC.endpoint),
+                 codeSigningRequirement: nil,
+             )
 
-    //         // For now, let's create a remote reference manually since resolve might return nil for remote actors
-    //         // We'll use the distributed actor initializer that takes an ID and system
-    //         let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
-    //         await #expect(try calculator.id == calculator.myId())
+             // For now, let's create a remote reference manually since resolve might return nil for remote actors
+             // We'll use the distributed actor initializer that takes an ID and system
+             let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+             await #expect(try calculator.id == calculator.myId())
 
-    //         let a: Int = .random(in: 10...100)
-    //         try await confirmation("consumes input stream") {
-    //             confirmConsumeStream in
-    //             do {
-    //                 let result = try await calculator.subtractStream(
-    //                     .init { c in
-    //                         confirmConsumeStream()
-    //                         c.yield(a)
-    //                         c.finish()
-    //                     })
-    //                 #expect(result == a)
-    //             } catch {
-    //                 print("error", error)
-    //                 throw error
-    //             }
-    //         }
-    //         try await Task.sleep(for: .milliseconds(10))
-    //         await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
-    //     }
-    // }
+             let a: Int = .random(in: 10...100)
+             try await confirmation("consumes input stream") {
+                 confirmConsumeStream in
+                 do {
+                     let result = try await calculator.subtractStream(
+                         .init { c in
+                             confirmConsumeStream()
+                             c.yield(a)
+                             c.yield(a)
+                             c.finish()
+                         })
+                     #expect(result == 0)
+                 } catch {
+                     throw error
+                 }
+             }
+             try await Task.sleep(for: .milliseconds(10))
+             await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
+         }
+     }
 
     @Test("XPC AsyncStream early cancellation")
     func xpcAsyncStreamEarlyCancellationTest() async throws {

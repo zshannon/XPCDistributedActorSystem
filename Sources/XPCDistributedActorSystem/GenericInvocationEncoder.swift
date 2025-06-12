@@ -1,9 +1,8 @@
+import Dependencies
 import Distributed
 import Foundation
 
 public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Sendable {
-    static let encoder = JSONEncoder()
-
     enum Error: Swift.Error {
         case failedToFindMangedName
     }
@@ -15,8 +14,19 @@ public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Send
     var returnType: String? = nil
     var errorType: String? = nil
 
+    private let actorSystem: XPCDistributedActorSystem
+    private let encoder = JSONEncoder()
+
+    init(actorSystem: XPCDistributedActorSystem) {
+        self.actorSystem = actorSystem
+    }
+
     public mutating func recordArgument(_ argument: RemoteCallArgument<some Codable>) throws {
-        try arguments.append(Self.encoder.encode(argument.value))
+        try withDependencies {
+            $0.distributedActorSystem = actorSystem
+        } operation: {
+            try arguments.append(encoder.encode(argument.value))
+        }
     }
 
     public mutating func recordGenericSubstitution(_ type: (some Any).Type) throws {
