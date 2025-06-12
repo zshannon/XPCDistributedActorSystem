@@ -20,6 +20,10 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
 
     @XPCActor private var xpcConnection: SwiftyXPC.XPCConnection?
 
+    override var isServer: Bool {
+        false
+    }
+
     public init(
         connectionType: ConnectionType,
         codeSigningRequirement: CodeSigningRequirement? = nil
@@ -42,9 +46,21 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
     {
         return liveActorStorage.get(id, as: actorType.self)
     }
+    
+    override public func assignID<Act>(_: Act.Type) -> ActorID
+        where Act: DistributedActor, ActorID == Act.ID
+    {
+        @Dependency(\.nextActorID) var nextActorID
+        let id: ActorID = nextActorID ?? .init()
+        return id
+    }
+    
+    override public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
+        liveActorStorage.remove(id)
+    }
 
     override public func makeInvocationEncoder() -> InvocationEncoder {
-        InvocationEncoder(client: self)
+        InvocationEncoder(system: self)
     }
 
     override public func remoteCall<Act, Res>(
@@ -60,8 +76,8 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             actorId: actor.id, target: target.identifier, invocation: invocation,
         )
 
-        let response: InvocationResponse<Data> = try await withDependencies { _ in
-//            $0.distributedActorSystem = self
+        let response: InvocationResponse<Data> = try await withDependencies {
+            $0.actorSystem = self
         } operation: {
             try await xpcConnection.sendMessage(
                 name: "invoke", request: request,
@@ -76,15 +92,15 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             throw XPCDistributedActorSystem.ProtocolError.failedToFindValueInResponse
         }
 
-//        let semaphore: AsyncSemaphore = .init(value: 0)
-        return try await withDependencies { _ in
-//            $0.dasAsyncStreamCodableSemaphore = semaphore
-//            $0.distributedActorSystem = self
+        let semaphore: AsyncSemaphore = .init(value: 0)
+        return try await withDependencies {
+            $0.actorSystem = self
+            $0.casSemaphore = semaphore
         } operation: {
             let result = try JSONDecoder().decode(Res.self, from: valueData)
             if Res.self is _IsAsyncStreamOfCodable.Type {
                 // this is a hack to support async decoding of AsyncStream<any Codable>
-//                try await semaphore.waitUnlessCancelled()
+                try await semaphore.waitUnlessCancelled()
             }
             return result
         }

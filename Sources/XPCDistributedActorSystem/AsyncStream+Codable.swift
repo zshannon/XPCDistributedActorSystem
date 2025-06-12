@@ -1,6 +1,7 @@
 import Dependencies
 import Distributed
 import Foundation
+import Semaphore
 
 final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Codable & Sendable {
     private let id: XPCDistributedActorSystem.ActorID
@@ -17,19 +18,19 @@ final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Co
     func next() async -> Element? {
         guard var iterator else { return nil }
         guard let next = await iterator.next() else {
-//            @Dependency(\.distributedActorSystem) var das
-//            await das?.releaseCodableAsyncStream(id)
+//            @Dependency(\.actorSystem) var actorSystem
+//            await actorSystem?.releaseCodableAsyncStream(id)
             return nil
         }
         return next
     }
 
-    deinit {
-        Task { [id] in
-//            @Dependency(\.distributedActorSystem) var das
-//            await das?.releaseCodableAsyncStream(id)
-        }
-    }
+//    deinit {
+//        Task { [id] in
+//            @Dependency(\.actorSystem) var actorSystem
+//            await actorSystem?.releaseCodableAsyncStream(id)
+//        }
+//    }
 }
 
 distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable {
@@ -66,10 +67,10 @@ distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable 
         Task {
             await whenLocal { local in
                 await local.store(stream: stream)
-//                @Dependency(\.distributedActorSystem) var das
-//                await das?.storeCodableAsyncStream(local)
-//                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-//                semaphore.signal()
+//                @Dependency(\.actorSystem) var actorSystem
+//                await actorSystem?.storeCodableAsyncStream(local)
+                @Dependency(\.casSemaphore) var semaphore
+                semaphore?.signal()
             }
         }
     }
@@ -89,24 +90,29 @@ extension AsyncStream: Codable where Element: Codable {
         let id = try container.decode(XPCDistributedActorSystem.ActorID.self)
         self.init(Element.self, bufferingPolicy: .bufferingNewest(128)) { continuation in
             let forwardingTask = Task {
-//                @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-//                @Dependency(\.distributedActorSystem) var das
-//                guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
-//                let stream = try CodableAsyncStream<Element>.resolve(id: id, using: das)
-//                semaphore.signal()
+                @Dependency(\.casSemaphore) var semaphore
+                @Dependency(\.actorSystem) var actorSystem
+                guard let actorSystem else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
+                let stream: CodableAsyncStream<Element>
+//                if actorSystem.isServer {
+                    stream = try CodableAsyncStream<Element>.resolve(id: id, using: actorSystem)
+//                } else {
+//                    stream = CodableAsyncStream<Element>(actorSystem: actorSystem)
+//                }
+                semaphore?.signal()
                 await withTaskCancellationHandler {
                     do {
-//                        while let element = try await stream.next() {
-//                            continuation.yield(element)
-//                        }
+                        while let element = try await stream.next() {
+                            continuation.yield(element)
+                        }
                     } catch {
-                        // continuation.finish(throwing: error)
+//                         continuation.finish(throwing: error)
                     }
                     continuation.finish()
                 } onCancel: {
-                    Task {
-//                        await das.releaseCodableAsyncStream(id)
-                    }
+//                    Task {
+//                        await actorSystem.releaseCodableAsyncStream(id)
+//                    }
                 }
             }
             continuation.onTermination = { _ in
@@ -116,13 +122,25 @@ extension AsyncStream: Codable where Element: Codable {
     }
 
     public func encode(to encoder: Encoder) throws where Element: Sendable {
-//        @Dependency(\.distributedActorSystem) var das
-//        guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
-//        let cas = CodableAsyncStream<Element>(actorSystem: das)
-//        cas.store(stream: self)
+        @Dependency(\.actorSystem) var actorSystem
+        guard let actorSystem else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
+        let cas = CodableAsyncStream<Element>(actorSystem: actorSystem)
+        cas.store(stream: self)
         var container = encoder.singleValueContainer()
-//        try container.encode(cas.id)
+        try container.encode(cas.id)
     }
+}
+
+public extension DependencyValues {
+    var casSemaphore: AsyncSemaphore? {
+        get { self[AsyncSemaphore.self] }
+        set { self[AsyncSemaphore.self] = newValue }
+    }
+}
+
+extension AsyncSemaphore: @retroactive DependencyKey {
+    public static var liveValue: AsyncSemaphore? { nil }
+    public static var testValue: AsyncSemaphore? { nil }
 }
 
 // this is a funny hack to make it possible to decode AsyncStream<any Codable> asynchronously

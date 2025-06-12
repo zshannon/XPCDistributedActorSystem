@@ -1,3 +1,4 @@
+import Dependencies
 import Distributed
 import Foundation
 
@@ -33,6 +34,8 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public typealias InvocationDecoder = GenericInvocationDecoder
     public typealias ResultHandler = InvocationResultHandler
     public typealias SerializationRequirement = Codable
+
+    var isServer: Bool { true }
 
     public func actorReady<Act>(_: Act) where Act: DistributedActor, ActorID == Act.ID {
         fatalError("subclass must override")

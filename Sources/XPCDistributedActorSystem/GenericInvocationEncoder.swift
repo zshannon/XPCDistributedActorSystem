@@ -1,3 +1,4 @@
+import Dependencies
 import Distributed
 import Foundation
 
@@ -15,21 +16,18 @@ public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Send
     var returnType: String? = nil
     var errorType: String? = nil
 
-    private let client: XPCDistributedActorClient?
-    private let system: XPCDistributedActorSystem?
+    private let system: XPCDistributedActorSystem
 
-    init(client: XPCDistributedActorClient) {
-        self.client = client
-        self.system = nil
-    }
-    
     init(system: XPCDistributedActorSystem) {
-        self.client = nil
         self.system = system
     }
 
     public mutating func recordArgument(_ argument: RemoteCallArgument<some Codable>) throws {
-        let data = try Self.encoder.encode(argument.value)
+        let data = try withDependencies {
+            $0.actorSystem = system
+        } operation: {
+            try Self.encoder.encode(argument.value)
+        }
         arguments.append(data)
     }
 

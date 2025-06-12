@@ -1,3 +1,4 @@
+import Dependencies
 import Distributed
 import Foundation
 
@@ -25,8 +26,11 @@ public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
         guard let data = argumentsIterator.next() else {
             throw Error.notEnoughArguments
         }
-        
-        return try Self.decoder.decode(Argument.self, from: data)
+        return try withDependencies {
+            $0.actorSystem = system
+        } operation: {
+            try Self.decoder.decode(Argument.self, from: data)
+        }
     }
 
     public mutating func decodeGenericSubstitutions() throws -> [Any.Type] {

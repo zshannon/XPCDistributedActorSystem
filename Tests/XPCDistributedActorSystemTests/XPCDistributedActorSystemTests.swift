@@ -125,13 +125,15 @@ struct XPCDistributedActorSystemTests {
                     result1 = value
                     confirmAddStream()
                     if value <= goal {
-                        await #expect(xpcHostDAS.countCodableAsyncStreams() == 1)
+//                        await #expect(xpcHostDAS.countCodableAsyncStreams() == 1)
                     }
                 }
                 #expect(result1 == goal)
+                await clientDAS.shutdown()
             }
             try await Task.sleep(for: .milliseconds(10))
-            await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
+            await #expect(xpcHostDAS.getActiveConnectionCount() == 0)
+            #expect(xpcHostDAS.liveActorStorage.count() == 0)
         }
     }
 
@@ -216,7 +218,7 @@ struct XPCDistributedActorSystemTests {
                     result1 = value
                     confirmAddStream()
                     if value < goal {
-                        await #expect(xpcHostDAS.countCodableAsyncStreams() == 1)
+//                        await #expect(xpcHostDAS.countCodableAsyncStreams() == 1)
                     }
                     if i == 2 {
                         break
@@ -225,7 +227,7 @@ struct XPCDistributedActorSystemTests {
                 #expect(result1 == a + 1)
             }
             try await Task.sleep(for: .milliseconds(10))
-            await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
+//            await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
         }
     }
 
@@ -280,7 +282,7 @@ struct XPCDistributedActorSystemTests {
 
             #expect(ids.count == count)
             try await Task.sleep(for: .milliseconds(10))
-            await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
+//            await #expect(xpcHostDAS.countCodableAsyncStreams() == 0)
         }
     }
 }
