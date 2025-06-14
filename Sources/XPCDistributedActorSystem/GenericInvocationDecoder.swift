@@ -2,7 +2,7 @@ import Distributed
 import Foundation
 
 public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
-    static let decoder = JSONDecoder()
+    let decoder = JSONDecoder()
 
     enum Error: Swift.Error {
         case notEnoughArguments
@@ -16,14 +16,14 @@ public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
     init(system: any DistributedActorSystem, request: InvocationRequest) {
         argumentsIterator = request.arguments.makeIterator()
         self.request = request
-        Self.decoder.userInfo[.actorSystemKey] = system
+        decoder.userInfo[.actorSystemKey] = system
     }
 
     public mutating func decodeNextArgument<Argument: Codable>() throws -> Argument {
         guard let data = argumentsIterator.next() else {
             throw Error.notEnoughArguments
         }
-        return try Self.decoder.decode(Argument.self, from: data)
+        return try decoder.decode(Argument.self, from: data)
     }
 
     public mutating func decodeGenericSubstitutions() throws -> [Any.Type] {
