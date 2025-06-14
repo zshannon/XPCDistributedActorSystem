@@ -78,7 +78,7 @@ struct XPCDistributedActorSystemTests {
 
                 // For now, let's create a remote reference manually since resolve might return nil for remote actors
                 // We'll use the distributed actor initializer that takes an ID and system
-                let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
                 await #expect(try calculator.id == calculator.myId())
 
                 // Now test actual XPC communication by calling methods on the resolved actor
@@ -121,7 +121,7 @@ struct XPCDistributedActorSystemTests {
 
                 // For now, let's create a remote reference manually since resolve might return nil for remote actors
                 // We'll use the distributed actor initializer that takes an ID and system
-                let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
                 await #expect(try calculator.id == calculator.myId())
 
                 let a: Int = .random(in: 10 ... 100)
@@ -169,7 +169,7 @@ struct XPCDistributedActorSystemTests {
 
                 // For now, let's create a remote reference manually since resolve might return nil for remote actors
                 // We'll use the distributed actor initializer that takes an ID and system
-                let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
 //                await #expect(try calculator.id == calculator.myId())
 
                 let a: Int = .random(in: 10 ... 100)
@@ -199,7 +199,7 @@ struct XPCDistributedActorSystemTests {
     func xpcAsyncStreamInputEarlyCancellationTest() async throws {
         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
         try await confirmation("host becomes ready for shutdown") { confirmReadyForShutdown in
-            try await confirmation("creates remote actor just once") { confirmCreatesActor in
+            try await confirmation("creates remote actor just once", expectedCount: 1 ... 2) { confirmCreatesActor in
                 let xpcHostDAS = try await XPCDistributedActorServer(
                     listener: listenerXPC,
                     actorCreationHandler: { system in
@@ -222,7 +222,7 @@ struct XPCDistributedActorSystemTests {
 
                 // For now, let's create a remote reference manually since resolve might return nil for remote actors
                 // We'll use the distributed actor initializer that takes an ID and system
-                let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
                 await #expect(try calculator.id == calculator.myId())
 
                 let a: Int = .random(in: 10 ... 100)
@@ -256,7 +256,7 @@ struct XPCDistributedActorSystemTests {
     func xpcAsyncStreamEarlyCancellationTest() async throws {
         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
         try await confirmation("host becomes ready for shutdown") { confirmReadyForShutdown in
-            try await confirmation("creates remote actor just once") { confirmCreatesActor in
+            try await confirmation("creates remote actor just once", expectedCount: 1 ... 2) { confirmCreatesActor in
                 let xpcHostDAS = try await XPCDistributedActorServer(
                     listener: listenerXPC,
                     actorCreationHandler: { system in
@@ -279,7 +279,7 @@ struct XPCDistributedActorSystemTests {
 
                 // For now, let's create a remote reference manually since resolve might return nil for remote actors
                 // We'll use the distributed actor initializer that takes an ID and system
-                let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
                 await #expect(try calculator.id == calculator.myId())
 
                 let a = 35
@@ -343,7 +343,7 @@ struct XPCDistributedActorSystemTests {
                             // remote
                             // actors
                             // We'll use the distributed actor initializer that takes an ID and system
-                            let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
+                            let calculator = try Calculator.resolve(id: .init(Calculator.self), using: clientDAS)
                             await #expect(try calculator.id == calculator.myId())
 
                             // Now test actual XPC communication by calling methods on the resolved actor
