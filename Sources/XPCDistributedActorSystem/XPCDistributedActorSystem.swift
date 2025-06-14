@@ -40,7 +40,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public typealias SerializationRequirement = Codable
 
     let liveActorStorage = LiveActorStorage()
-    let nextActorId: Mutex<[ObjectIdentifier: ActorID]> = .init([:])
     let state: Mutex<State> = .init(.disconnected)
     let actorCreationHandler:
         (@Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?)?
@@ -48,9 +47,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     // Strong references to actors created via handler to keep them alive
     let createdActors: Mutex<[ActorID: any DistributedActor]> = .init([:])
 
-    // Actor to synchronize actor creation to prevent race conditions
-    private let actorManager: ActorCreationManager
-    internal let codableAsyncStreamManager: CodableAsyncStreamManager = .init()
+    private let onConnectionCloseCallbacks: Mutex<[SwiftyXPC.XPCConnection: [@Sendable () async -> Void]]> = .init([:])
 
     // Thread-local storage for overriding the next assigned ID
     @TaskLocal static var pendingActorID: ActorID?
@@ -61,7 +58,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         )?
     ) {
         self.actorCreationHandler = actorCreationHandler
-        actorManager = ActorCreationManager()
     }
 
     func handleInvocation(request: InvocationRequest) async -> InvocationResponse<Data> {
@@ -72,9 +68,8 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
                 localActor = try await withDependencies {
                     $0.distributedActorSystem = self
                 } operation: {
-                    try await actorManager.getOrCreateActor(
+                    try await getOrCreateActor(
                         id: request.actorId,
-                        system: self,
                         handler: actorCreationHandler,
                     )
                 }
@@ -84,7 +79,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
                 throw ProtocolError.failedToFindActorForId(request.actorId)
             }
 
-            var invocationDecoder = InvocationDecoder(system: self, request: request)
             let handler = InvocationResultHandler()
 
             let semaphore: AsyncSemaphore = .init(value: 0)
@@ -92,6 +86,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
                 $0.dasAsyncStreamCodableSemaphore = semaphore
                 $0.distributedActorSystem = self
             } operation: {
+                var invocationDecoder = InvocationDecoder(system: self, request: request)
                 try await executeDistributedTarget(
                     on: localActor,
                     target: RemoteCallTarget(request.target),
@@ -110,6 +105,37 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         }
     }
 
+    private func getOrCreateActor(
+        id: XPCDistributedActorSystem.ActorID,
+        handler: @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
+    )
+        async throws -> (any DistributedActor)?
+    {
+        // Check if already exists
+        if let existing = liveActorStorage.get(id) {
+            return existing
+        }
+
+        // Create the actor
+        let newActor = try await XPCDistributedActorSystem.$pendingActorID.withValue(id) {
+            try await handler(self)
+        }
+
+        if let actor = newActor {
+            createdActors.withLock { createdActors in
+                createdActors[id] = actor
+            }
+            await onConnectionClose { [weak self] in
+                guard let self else { return }
+                createdActors.withLock { createdActors in
+                    _ = createdActors.removeValue(forKey: id)
+                }
+            }
+        }
+
+        return newActor
+    }
+
     public func makeInvocationEncoder() -> InvocationEncoder {
         withDependencies {
             $0.distributedActorSystem = self
@@ -120,6 +146,12 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
 
     public func actorReady<Act>(_ actor: Act) where Act: DistributedActor, ActorID == Act.ID {
         liveActorStorage.add(actor)
+        Task {
+            await onConnectionClose { [weak self] in
+                guard let self else { return }
+                _ = liveActorStorage.remove(actor.id)
+            }
+        }
     }
 
     public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
@@ -128,34 +160,21 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         liveActorStorage.get(id, as: actorType.self)
     }
 
-    public func assignID<Act>(_ actorType: Act.Type) -> ActorID
-        where Act: DistributedActor, UUID == Act.ID
+    public func assignID<Act>(_: Act.Type) -> ActorID
+        where Act: DistributedActor, ActorID == Act.ID
     {
         // Check if there's a pending actor ID to use (for actor creation handler)
         if let pendingID = XPCDistributedActorSystem.pendingActorID {
             return pendingID
         }
 
-        var id: Act.ID?
-
-        nextActorId.withLock { dictionary in
-            let nextId: Act.ID = .init()
-            dictionary[ObjectIdentifier(actorType)] = nextId
-            id = nextId
-        }
-
-        guard let id else {
-            fatalError("Failed to assign ID")
-        }
-
-        return id
+        return .init()
     }
 
     public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
-        liveActorStorage.remove(id)
-        // Also remove from strong reference storage
-        _ = createdActors.withLock { createdActors in
-            createdActors.removeValue(forKey: id)
+        _ = liveActorStorage.remove(id)
+        createdActors.withLock {
+            _ = $0.removeValue(forKey: id)
         }
     }
 
@@ -191,18 +210,78 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         fatalError("Must be implemented by subclass")
     }
 
-    func storeCodableAsyncStream<Element>(_ cas: CodableAsyncStream<Element>) async where Element: Codable & Sendable {
-        @Dependency(\.connection) var connection
-        print("storeCodableAsyncStream \(cas.id) on connection \(String(describing: connection))", self)
-        await codableAsyncStreamManager.storeCodableAsyncStream(cas)
+//    func storeCodableAsyncStream<Element>(_: CodableAsyncStream<Element>) async where Element: Codable & Sendable {
+//        @Dependency(\.connection) var connection
+    ////        await codableAsyncStreamManager.storeCodableAsyncStream(cas)
+    ////        await onConnectionClose { [weak self] in
+    ////            guard let self else { return }
+    ////            await codableAsyncStreamManager.releaseCodableAsyncStream(cas.id)
+    ////        }
+//    }
+
+//    func releaseCodableAsyncStream(_: ActorID) async {
+    ////        Task {
+    ////            try await Task.sleep(for: .milliseconds(10))
+    ////            await codableAsyncStreamManager.releaseCodableAsyncStream(id)
+    ////        }
+//    }
+//
+//    func countCodableAsyncStreams() async -> Int {
+    ////        await codableAsyncStreamManager.countCodableAsyncStreams()
+//        0
+//    }
+
+    func onConnectionClose(
+        connection: SwiftyXPC.XPCConnection? = nil,
+        _ callback: @escaping @Sendable () async -> Void,
+    ) async {
+        var connection = connection
+        if connection == nil {
+            @Dependency(\.connection) var c
+            connection = c
+        }
+        assert(connection != nil, "No connection available to monitor for close")
+        guard let connection else { return }
+        onConnectionCloseCallbacks.withLock { onConnectionCloseCallbacks in
+            onConnectionCloseCallbacks[connection] = onConnectionCloseCallbacks[connection, default: []] + [callback]
+        }
     }
 
-    func releaseCodableAsyncStream(_ id: ActorID) async {
-        await codableAsyncStreamManager.releaseCodableAsyncStream(id)
+    func connectionClose(connection: SwiftyXPC.XPCConnection) async {
+        await withTaskGroup { group in
+            onConnectionCloseCallbacks.withLock { onConnectionCloseCallbacks in
+                for callback in onConnectionCloseCallbacks[connection, default: []] {
+                    group.addTask {
+                        await callback()
+                    }
+                }
+            }
+            await group.waitForAll()
+        }
     }
 
-    func countCodableAsyncStreams() async -> Int {
-        await codableAsyncStreamManager.countCodableAsyncStreams()
+    func onConnectionQueue<T: Sendable>(
+        _ connection: SwiftyXPC.XPCConnection,
+        barrier _: Bool = false,
+        _ execute: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withDependencies {
+            $0.connection = connection
+        } operation: {
+            try await execute()
+        }
+    }
+
+    func onConnectionQueue<T: Sendable>(
+        _ connection: SwiftyXPC.XPCConnection,
+        barrier _: Bool = false,
+        _ execute: @escaping @Sendable () async -> T
+    ) async throws -> T {
+        await withDependencies {
+            $0.connection = connection
+        } operation: {
+            await execute()
+        }
     }
 }
 
@@ -215,11 +294,13 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
         case endpoint(SwiftyXPC.XPCEndpoint)
     }
 
-    @XPCActor private var xpcConnection: SwiftyXPC.XPCConnection?
+    @XPCActor var xpcConnection: SwiftyXPC.XPCConnection?
+    private let attemptReconnect: Bool
     private let connectionType: ConnectionType
     private let codeSigningRequirement: CodeSigningRequirement?
 
     public init(
+        attemptReconnect: Bool = true,
         connectionType: ConnectionType,
         codeSigningRequirement: CodeSigningRequirement? = nil,
         actorCreationHandler: (
@@ -227,6 +308,7 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
         )? = nil
     )
     async throws {
+        self.attemptReconnect = attemptReconnect
         self.codeSigningRequirement = codeSigningRequirement
         self.connectionType = connectionType
         super.init(actorCreationHandler: actorCreationHandler)
@@ -280,21 +362,20 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
     @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
         connection.cancelHandler = { [weak self] in
             guard let self else { return }
-            await self.onConnectionInvalidated()
+            await onConnectionInvalidated()
         }
         connection.errorHandler = { [weak self] _, _ in
             guard let self else { return }
-            await self.onConnectionInvalidated()
+            await onConnectionInvalidated()
         }
 
         connection.setMessageHandler(name: "invoke") {
-            [weak self] (connection: SwiftyXPC.XPCConnection, request: InvocationRequest)
+            [weak self] (_: SwiftyXPC.XPCConnection, request: InvocationRequest)
             async throws -> InvocationResponse<Data> in
             guard let self else {
                 return InvocationResponse<Data>(error: "Server unavailable", value: nil)
             }
             return await withDependencies {
-                $0.connection = connection
                 $0.distributedActorSystem = self
             } operation: {
                 await self.handleInvocation(request: request)
@@ -304,8 +385,12 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
 
     @XPCActor private func onConnectionInvalidated() async {
         state.withLock { $0 = .disconnected }
+        if let connection = xpcConnection {
+            await connectionClose(connection: connection)
+        }
         // Automatically reconnect for client connections
         // do this in a task so the error handler can resolve before attempting to re-connect
+        guard attemptReconnect else { return }
         Task {
             try? await connect()
         }
@@ -323,9 +408,7 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             $0.distributedActorSystem = self
         } operation: {
             await invocation.waitForAsyncStreamEncoding()
-            let request = withDependencies {
-                $0.connection = xpcConnection
-            } operation: {
+            let request = try await onConnectionQueue(xpcConnection) { [target, invocation] in
                 InvocationRequest(
                     actorId: actor.id, target: target.identifier, invocation: invocation,
                 )
@@ -380,6 +463,17 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             throw ProtocolError.errorFromRemoteActor(error)
         }
     }
+
+    override func onConnectionClose(
+        connection: SwiftyXPC.XPCConnection? = nil,
+        _ callback: @escaping @Sendable () async -> Void,
+    ) async {
+        var connection = connection
+        if connection == nil {
+            connection = await xpcConnection
+        }
+        await super.onConnectionClose(connection: connection, callback)
+    }
 }
 
 // MARK: - Server System
@@ -393,9 +487,8 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     private let eventHandler: EventHandler
     private let eventQueue: AsyncQueue = .init()
 
+    @XPCActor private let activeConnections: Mutex<[SwiftyXPC.XPCConnection]> = .init([])
     @XPCActor private var listener: SwiftyXPC.XPCListener?
-    @XPCActor private var activeConnections: [SwiftyXPC.XPCConnection] = []
-    @XPCActor private let activeConnectionsSemaphore: AsyncSemaphore = .init(value: 1)
 
     public init(
         listener: SwiftyXPC.XPCListener,
@@ -464,18 +557,18 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     @XPCActor private func setupListener(_ listener: SwiftyXPC.XPCListener) {
         listener.activatedConnectionHandler = { [weak self] newConnection in
             guard let self else { return }
-            await self.handleNewConnection(newConnection)
+            await handleNewConnection(newConnection)
         }
         listener.canceledConnectionHandler = { [weak self] connection in
             guard let self else { return }
-            await self.removeConnection(connection)
+            await removeConnection(connection)
         }
     }
 
     @XPCActor private func handleNewConnection(_ connection: SwiftyXPC.XPCConnection) async {
-        await activeConnectionsSemaphore.wait()
-        defer { activeConnectionsSemaphore.signal() }
-        activeConnections.append(connection)
+        activeConnections.withLock {
+            $0.append(connection)
+        }
         setupConnectionHandlers(connection)
 
         do {
@@ -488,14 +581,11 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     @XPCActor private func setupConnectionHandlers(_ connection: SwiftyXPC.XPCConnection) {
         connection.cancelHandler = { [weak self] in
             guard let self else { return }
-            print("Connection \(connection) cancelled")
-            await self.removeConnection(connection)
+            await removeConnection(connection)
         }
-        print("Setting up connection handlers for \(connection)")
-        connection.errorHandler = { [weak self] connection, error in
+        connection.errorHandler = { [weak self] connection, _ in
             guard let self else { return }
-            print("Connection \(connection) error: \(error)")
-            await self.removeConnection(connection)
+            await removeConnection(connection)
         }
 
         connection.setMessageHandler(name: "invoke") {
@@ -504,23 +594,25 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
             guard let self else {
                 return InvocationResponse<Data>(error: "Server unavailable", value: nil)
             }
-            return await withDependencies {
-                $0.connection = connection
+            return try await withDependencies {
                 $0.distributedActorSystem = self
             } operation: {
-                await self.handleInvocation(request: request)
+                try await onConnectionQueue(connection) {
+                    await self.handleInvocation(request: request)
+                }
             }
         }
     }
 
     @XPCActor private func removeConnection(_ connection: SwiftyXPC.XPCConnection) async {
-        await activeConnectionsSemaphore.wait()
-        defer { activeConnectionsSemaphore.signal() }
-        guard activeConnections.contains(where: { $0 === connection }) else {
+        guard activeConnections.withLock({ $0.contains(where: { $0 === connection }) }) else {
             return
         }
-        activeConnections.removeAll { $0 === connection }
-        if activeConnections.isEmpty {
+        try! await onConnectionQueue(connection) {
+            await self.connectionClose(connection: connection)
+        }
+        activeConnections.withLock { $0.removeAll { $0 === connection } }
+        if activeConnections.withLock({ $0.isEmpty }) {
             await eventQueue.addOperation { [eventHandler] in
                 await eventHandler(.readyForShutdown)
             }.value
@@ -580,38 +672,32 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
         throw ProtocolError.noConnection
     }
 
-    @XPCActor public func getActiveConnectionCount() async -> Int {
-        await activeConnectionsSemaphore.wait()
-        defer { activeConnectionsSemaphore.signal() }
-        return activeConnections.count
-    }
-
     enum ShutdownError: Swift.Error {
         case danglingActiveConnections, danglingCodableAsyncStreams, danglingCreatedActors, danglingLiveActors
     }
 
     public func wantsShutdown() async throws {
         let semaphore: AsyncSemaphore = .init(value: 0)
+        /// flush `eventQueue`
         eventQueue.addBarrierOperation {
             semaphore.signal()
         }
         await semaphore.wait()
-//        try createdActors.withLock {
-//            guard $0.isEmpty else {
-//                throw ShutdownError.danglingCreatedActors
-//            }
-//        }
-//        try liveActorStorage.actors.withLock {
-//            guard $0.isEmpty else {
-//                throw ShutdownError.danglingLiveActors
-//            }
-//        }
-//        guard await codableAsyncStreamManager.countCodableAsyncStreams() == 0 else {
-//            throw ShutdownError.danglingCodableAsyncStreams
-//        }
-//        guard await getActiveConnectionCount() == 0 else {
-//            throw ShutdownError.danglingActiveConnections
-//        }
+        try createdActors.withLock {
+            guard $0.isEmpty else {
+                throw ShutdownError.danglingCreatedActors
+            }
+        }
+        try liveActorStorage.actors.withLock {
+            guard $0.isEmpty else {
+                throw ShutdownError.danglingLiveActors
+            }
+        }
+        try activeConnections.withLock {
+            guard $0.isEmpty else {
+                throw ShutdownError.danglingActiveConnections
+            }
+        }
     }
 }
 
@@ -625,9 +711,7 @@ extension AsyncSemaphore: @retroactive DependencyKey {
         print(Thread.callStackSymbols.joined(separator: "\n"))
         fatalError("XPCDistributedActorSystem must be provided via withDependencies")
     }
-}
 
-extension AsyncSemaphore: @retroactive TestDependencyKey {
     public static var testValue: AsyncSemaphore {
         print(Thread.callStackSymbols.joined(separator: "\n"))
         fatalError("XPCDistributedActorSystem must be provided via withDependencies")
@@ -637,6 +721,16 @@ extension AsyncSemaphore: @retroactive TestDependencyKey {
 extension SwiftyXPC.XPCConnection: @retroactive DependencyKey {
     public static var liveValue: XPCConnection? { nil }
     public static var testValue: XPCConnection? { nil }
+}
+
+extension SwiftyXPC.XPCConnection: @retroactive Hashable {
+    public static func == (lhs: SwiftyXPC.XPCConnection, rhs: SwiftyXPC.XPCConnection) -> Bool {
+        lhs === rhs
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(self))
+    }
 }
 
 extension DependencyValues {
@@ -656,35 +750,4 @@ extension DependencyValues {
     }
 }
 
-private actor ActorCreationManager {
-    private let createSemaphore: AsyncSemaphore = .init(value: 1)
-
-    func getOrCreateActor(
-        id: XPCDistributedActorSystem.ActorID,
-        system: XPCDistributedActorSystem,
-        handler: @Sendable (XPCDistributedActorSystem) async throws -> (any DistributedActor)?
-    )
-        async throws -> (any DistributedActor)?
-    {
-        // Check if already exists
-        if let existing = system.liveActorStorage.get(id) {
-            return existing
-        }
-
-        try await createSemaphore.waitUnlessCancelled()
-        defer { createSemaphore.signal() }
-
-        // Create the actor
-        let newActor = try await XPCDistributedActorSystem.$pendingActorID.withValue(id) {
-            try await handler(system)
-        }
-
-        if let actor = newActor {
-            system.createdActors.withLock { createdActors in
-                createdActors[id] = actor
-            }
-        }
-
-        return newActor
-    }
-}
+extension RemoteCallTarget: @unchecked @retroactive Sendable {}

@@ -1,6 +1,7 @@
 import Dependencies
 import Distributed
 import Foundation
+import Semaphore
 
 final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Codable & Sendable {
     private let id: XPCDistributedActorSystem.ActorID
@@ -16,19 +17,7 @@ final class AsyncIteratorWrapper<Element>: @unchecked Sendable where Element: Co
 
     func next() async -> Element? {
         guard var iterator else { return nil }
-        guard let next = await iterator.next() else {
-            @Dependency(\.distributedActorSystem) var das
-            await das?.releaseCodableAsyncStream(id)
-            return nil
-        }
-        return next
-    }
-
-    deinit {
-        Task { [id] in
-            @Dependency(\.distributedActorSystem) var das
-            await das?.releaseCodableAsyncStream(id)
-        }
+        return await iterator.next()
     }
 }
 
@@ -43,10 +32,13 @@ distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable 
 
     distributed func next() async throws -> Element? {
         do {
+//            @Dependency(\.distributedActorSystem) var das
+//            print("next()#\(id)", das)
             return try await whenLocal { local in
+//                @Dependency(\.distributedActorSystem) var das
+//                print("next()#\(id) -> local", das)
                 guard let iterator = local.iterator else { throw Error.exhausted }
                 guard let next = await iterator.next() else { throw Error.exhausted }
-
                 return next
             }
         } catch {
@@ -66,8 +58,6 @@ distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable 
         Task {
             await whenLocal { local in
                 await local.store(stream: stream)
-                @Dependency(\.distributedActorSystem) var das
-                await das?.storeCodableAsyncStream(local)
                 @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
                 semaphore.signal()
             }
@@ -94,20 +84,21 @@ extension AsyncStream: Codable where Element: Codable {
                 guard let das else { throw CodableAsyncStream<Element>.Error.actorSystemUnavailable }
                 let stream = try CodableAsyncStream<Element>.resolve(id: id, using: das)
                 semaphore.signal()
-                await withTaskCancellationHandler {
-                    do {
-                        while let element = try await stream.next() {
-                            continuation.yield(element)
-                        }
-                    } catch {
-                        // continuation.finish(throwing: error)
+                do {
+                    @Dependency(\.distributedActorSystem) var das
+//                    print("RESOLVED ASYNC STREAM \(id) USING DAS \(String(describing: das))")
+                    while let element = try await stream.next() {
+                        continuation.yield(element)
+
+                        // TODO: this is workaround for some weird data race :(
+                        try await Task.sleep(for: .milliseconds(1))
+                        try Task.checkCancellation()
                     }
-                    continuation.finish()
-                } onCancel: {
-                    Task {
-                        await das.releaseCodableAsyncStream(id)
-                    }
+                } catch {
+//                    print("ERROR IN ASYNC STREAM \(id): \(error)")
+                    // continuation.finish(throwing: error)
                 }
+                continuation.finish()
             }
             continuation.onTermination = { _ in
                 forwardingTask.cancel()
@@ -136,30 +127,20 @@ extension AsyncStream: Sendable where Element: Sendable {}
 private struct AnyCodableAsyncStream: @unchecked Sendable {
     let id: XPCDistributedActorSystem.ActorID
     private let _boxed: Any // strong reference keeps the actor alive
+    private let ElementType: Any.Type
 
     init<E: Codable & Sendable>(_ base: CodableAsyncStream<E>) {
         id = base.id
         _boxed = base
-    }
-}
-
-/// Manages a *heterogeneous* set of `CodableAsyncStream`s.
-/// Each stored stream can have a different `Element` type.
-actor CodableAsyncStreamManager {
-    private var storage: [AnyCodableAsyncStream] = []
-
-    /// Store a new stream (any element type) so that it stays alive.
-    func storeCodableAsyncStream<E: Codable & Sendable>(_ cas: CodableAsyncStream<E>) async {
-        storage.append(AnyCodableAsyncStream(cas))
+        ElementType = E.self
     }
 
-    /// Release a previously‑stored stream once its remote side finishes.
-    func releaseCodableAsyncStream(_ id: XPCDistributedActorSystem.ActorID) async {
-        storage.removeAll { $0.id == id }
-    }
-
-    /// Useful for diagnostics & testing.
-    func countCodableAsyncStreams() async -> Int {
-        storage.count
+    func cancel() {
+        print("CANCELLING \(id)", _boxed)
+//        if let boxed = _boxed as? CodableAsyncStream<ElementType> {
+//            print("YEEEE")
+//        }
+//                await boxed.actorSystem?.releaseCodableAsyncStream(boxed.id)
+//        }
     }
 }

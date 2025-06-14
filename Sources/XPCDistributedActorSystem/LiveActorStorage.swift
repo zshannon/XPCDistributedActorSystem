@@ -31,9 +31,9 @@ final class LiveActorStorage: Sendable {
         }
     }
 
-    func remove(_ id: XPCDistributedActorSystem.ActorID) {
+    func remove(_ id: XPCDistributedActorSystem.ActorID) -> (any DistributedActor)? {
         actors.withLock {
-            _ = $0.removeValue(forKey: id)
+            $0.removeValue(forKey: id)?.actor
         }
     }
 }

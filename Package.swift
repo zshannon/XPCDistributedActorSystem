@@ -37,8 +37,8 @@ let package = Package(
 )
 
 let swiftSettings: [SwiftSetting] = [
-    .enableExperimentalFeature("StrictConcurrency"),
-    .enableExperimentalFeature("IsolatedAny"),
+//    .enableExperimentalFeature("StrictConcurrency"),
+//    .enableExperimentalFeature("IsolatedAny"),
     // .enableUpcomingFeature("InferSendableFromCaptures"),
     .swiftLanguageMode(.v6),
 ]

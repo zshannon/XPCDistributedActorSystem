@@ -2,14 +2,13 @@ import Distributed
 import Foundation
 
 public struct GenericInvocationDecoder: DistributedTargetInvocationDecoder {
-    let decoder = JSONDecoder()
-
     enum Error: Swift.Error {
         case notEnoughArguments
     }
 
     public typealias SerializationRequirement = any Codable
 
+    private let decoder = JSONDecoder()
     private let request: InvocationRequest
     private var argumentsIterator: Array<Data>.Iterator
 

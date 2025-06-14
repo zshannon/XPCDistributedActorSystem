@@ -35,7 +35,7 @@ public struct GenericInvocationEncoder: DistributedTargetInvocationEncoder, Send
             await group.waitForAll()
         }
     }
-    
+
     public mutating func recordArgument(_ argument: RemoteCallArgument<some Codable>) throws {
         let semaphore: AsyncSemaphore = .init(value: 0)
         if type(of: argument.value) is _IsAsyncStreamOfCodable.Type {

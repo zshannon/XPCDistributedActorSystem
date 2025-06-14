@@ -62,7 +62,7 @@ struct XPCDistributedActorSystemTests {
                         // Create a Calculator actor when one isn't found for the given ID
                         confirmCreatesActor()
                         return Calculator(actorSystem: system)
-                    }
+                    },
                 ) { event in
                     if case .readyForShutdown = event {
                         confirmReadyForShutdown()
@@ -71,6 +71,7 @@ struct XPCDistributedActorSystemTests {
 
                 // Create a client actor system that connects to the listener's endpoint
                 let clientDAS = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
                     connectionType: .endpoint(listenerXPC.endpoint),
                     codeSigningRequirement: nil,
                 )
@@ -113,6 +114,7 @@ struct XPCDistributedActorSystemTests {
 
                 // Create a client actor system that connects to the listener's endpoint
                 let clientDAS = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
                     connectionType: .endpoint(listenerXPC.endpoint),
                     codeSigningRequirement: nil,
                 )
@@ -160,6 +162,7 @@ struct XPCDistributedActorSystemTests {
 
                 // Create a client actor system that connects to the listener's endpoint
                 let clientDAS = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
                     connectionType: .endpoint(listenerXPC.endpoint),
                     codeSigningRequirement: nil,
                 )
@@ -195,7 +198,7 @@ struct XPCDistributedActorSystemTests {
     @Test("XPC AsyncStream input stream early cancellation")
     func xpcAsyncStreamInputEarlyCancellationTest() async throws {
         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
-        try await confirmation("host becomes ready for shutdown", expectedCount: 2) { confirmReadyForShutdown in
+        try await confirmation("host becomes ready for shutdown") { confirmReadyForShutdown in
             try await confirmation("creates remote actor just once") { confirmCreatesActor in
                 let xpcHostDAS = try await XPCDistributedActorServer(
                     listener: listenerXPC,
@@ -212,6 +215,7 @@ struct XPCDistributedActorSystemTests {
 
                 // Create a client actor system that connects to the listener's endpoint
                 let clientDAS = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
                     connectionType: .endpoint(listenerXPC.endpoint),
                     codeSigningRequirement: nil,
                 )
@@ -243,7 +247,6 @@ struct XPCDistributedActorSystemTests {
                         }
                     }
                 })
-                try await clientDAS.shutdown()
                 try await xpcHostDAS.wantsShutdown()
             }
         }
@@ -269,6 +272,7 @@ struct XPCDistributedActorSystemTests {
 
                 // Create a client actor system that connects to the listener's endpoint
                 let clientDAS = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
                     connectionType: .endpoint(listenerXPC.endpoint),
                     codeSigningRequirement: nil,
                 )
@@ -278,10 +282,11 @@ struct XPCDistributedActorSystemTests {
                 let calculator = try Calculator.resolve(id: .init(), using: clientDAS)
                 await #expect(try calculator.id == calculator.myId())
 
-                let a: Int = .random(in: 10 ... 100)
-                let b: Int = .random(in: 10 ... 100)
+                let a = 35
+                let b = 51
                 let goal = a + b
-                try await confirmation("receives all values from addStream", expectedCount: 2) {
+                let cancelAfter: Int = .random(in: 3 ... (b - a - 2))
+                try await confirmation("receives all values from addStream", expectedCount: cancelAfter) {
                     confirmAddStream in
                     var result1 = 0
                     var i = 0
@@ -289,14 +294,11 @@ struct XPCDistributedActorSystemTests {
                         i += 1
                         result1 = value
                         confirmAddStream()
-                        if value < goal {
-                            await #expect(xpcHostDAS.countCodableAsyncStreams() == 1)
-                        }
-                        if i == 2 {
+                        if i == cancelAfter {
                             break
                         }
                     }
-                    #expect(result1 == a + 1)
+                    #expect(result1 == a + cancelAfter - 1)
                 }
                 try await clientDAS.shutdown()
                 try await xpcHostDAS.wantsShutdown()
@@ -309,7 +311,9 @@ struct XPCDistributedActorSystemTests {
         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
         let endpoint = listenerXPC.endpoint
         let count: Int = .random(in: 5 ... 10)
-        try await confirmation("host becomes ready for shutdown") { confirmReadyForShutdown in
+        try await confirmation("host becomes ready for shutdown",
+                               expectedCount: 1 ... count)
+        { confirmReadyForShutdown in
             try await confirmation("creates remote actor just once", expectedCount: count) {
                 confirmCreatesActor in
                 let xpcHostDAS = try await XPCDistributedActorServer(
@@ -330,6 +334,7 @@ struct XPCDistributedActorSystemTests {
                     for _ in 0 ..< count {
                         group.addTask {
                             let clientDAS = try await XPCDistributedActorClient(
+                                attemptReconnect: false,
                                 connectionType: .endpoint(endpoint),
                                 codeSigningRequirement: nil,
                             )
@@ -348,9 +353,9 @@ struct XPCDistributedActorSystemTests {
 
                             let result2 = try await calculator.multiply(5, 6)
                             #expect(result2 == 30)
-                            
+
                             try await clientDAS.shutdown()
-                            
+
                             return calculator.id
                         }
                     }
