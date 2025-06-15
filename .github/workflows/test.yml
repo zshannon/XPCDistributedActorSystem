@@ -11,7 +11,7 @@ jobs:
     name: Swift Tests
     strategy:
       matrix:
-        os: [macos-latest]
+        os: [macos-15]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -63,29 +63,11 @@ jobs:
           CODE_SIGN_IDENTITY: ""
         run: |
           echo "=== Starting Build ==="
-          swift build --verbose 2>&1 | tee build.log || {
-            echo "=== Build Failed - Showing Error Details ==="
-            cat build.log
-            echo "=== Package Resolution ==="
-            swift package resolve --verbose || echo "Package resolution failed"
-            echo "=== Checking for macOS version issues ==="
-            if grep -q "is only available in macOS" build.log; then
-              echo "Detected macOS version compatibility issue"
-              echo "Consider lowering platform requirements or using newer runner"
-            fi
-            exit 1
-          }
+          swift build --verbose
 
       - name: Run Tests
         env:
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
         run: |
-          echo "=== Starting Tests ==="
-          swift test --verbose --parallel 2>&1 | tee test.log || {
-            echo "=== Test Failed - Showing Error Details ==="
-            cat test.log
-            echo "=== Build Directory Contents ==="
-            find .build -name "*.dylib" -o -name "*.a" -o -name "*.so" 2>/dev/null || echo "No build artifacts found"
-            exit 1
-          }
+          swift test --verbose --parallel
