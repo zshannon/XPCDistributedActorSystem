@@ -20,6 +20,32 @@ jobs:
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.1"
+
+      - name: Debug Environment
+        run: |
+          echo "=== Swift Version ==="
+          swift --version
+          echo "=== Xcode Version ==="
+          xcodebuild -version
+          echo "=== macOS Version ==="
+          sw_vers
+          echo "=== Check macOS 15.0+ Requirement ==="
+          MACOS_VERSION=$(sw_vers -productVersion)
+          MACOS_MAJOR=$(echo $MACOS_VERSION | cut -d. -f1)
+          if [[ $MACOS_MAJOR -lt 15 ]]; then
+            echo "WARNING: This project requires macOS 15.0+, but runner has $MACOS_VERSION"
+            echo "Attempting to build anyway - may need to adjust platform requirements"
+          else
+            echo "macOS version $MACOS_VERSION meets requirements"
+          fi
+          echo "=== Available Swift Toolchains ==="
+          ls -la /Applications/Xcode.app/Contents/Developer/Toolchains/ || echo "No Xcode toolchains found"
+          echo "=== Package Info ==="
+          cat Package.swift
+          echo "=== Resolved Dependencies ==="
+          cat Package.resolved || echo "No Package.resolved found"
 
       - name: Cache Swift Package Dependencies
         uses: actions/cache@v4
@@ -35,10 +61,31 @@ jobs:
         env:
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
-        run: swift build --verbose --enable-experimental-feature Macros
+        run: |
+          echo "=== Starting Build ==="
+          swift build --verbose 2>&1 | tee build.log || {
+            echo "=== Build Failed - Showing Error Details ==="
+            cat build.log
+            echo "=== Package Resolution ==="
+            swift package resolve --verbose || echo "Package resolution failed"
+            echo "=== Checking for macOS version issues ==="
+            if grep -q "is only available in macOS" build.log; then
+              echo "Detected macOS version compatibility issue"
+              echo "Consider lowering platform requirements or using newer runner"
+            fi
+            exit 1
+          }
 
       - name: Run Tests
         env:
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
-        run: swift test --verbose --parallel --enable-experimental-feature Macros
+        run: |
+          echo "=== Starting Tests ==="
+          swift test --verbose --parallel 2>&1 | tee test.log || {
+            echo "=== Test Failed - Showing Error Details ==="
+            cat test.log
+            echo "=== Build Directory Contents ==="
+            find .build -name "*.dylib" -o -name "*.a" -o -name "*.so" 2>/dev/null || echo "No build artifacts found"
+            exit 1
+          }
