@@ -35,10 +35,10 @@ jobs:
         env:
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
-        run: swift build --verbose
+        run: swift build --verbose --enable-experimental-feature Macros
 
       - name: Run Tests
         env:
           CODE_SIGNING_REQUIRED: "NO"
           CODE_SIGN_IDENTITY: ""
-        run: swift test --verbose --parallel
+        run: swift test --verbose --parallel --enable-experimental-feature Macros
