@@ -1,40 +1,34 @@
-@preconcurrency import XPC
+import SwiftyXPC
 
-public actor XPCDaemonListener
-{
+public actor XPCDaemonListener {
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: XPCConnection?
-    private var listener: xpc_connection_t?
-    
-    public init(daemonServiceName: String, actorSystem: XPCDistributedActorSystem) throws
-    {
-        self.actorSystem = actorSystem
-        let listener = xpc_connection_create_mach_service(daemonServiceName, nil, UInt64(XPC_CONNECTION_MACH_SERVICE_LISTENER))
-        self.listener = listener
+    var lastConnection: SwiftyXPC.XPCConnection?
+    private let listener: XPCListener
 
-        xpc_connection_set_event_handler(listener) { event in
-            if event === XPC_ERROR_CONNECTION_INVALID {
-                print("XPCDaemonListener received XPC_ERROR_CONNECTION_INVALID")
-                // TODO: Invalidate listener?
-                return
-            } else if event === XPC_ERROR_CONNECTION_INTERRUPTED {
-                print("XPCDaemonListener received XPC_ERROR_CONNECTION_INTERRUPTED")
-                return
-            }
-            
-            let connection = XPCConnection(incomingConnection: event, actorSystem: actorSystem, codeSigningRequirement: actorSystem.codeSigningRequirement)
+    public init(
+        daemonServiceName: String,
+        codeSigningRequirement: CodeSigningRequirement? = nil,
+        actorSystem: XPCDistributedActorSystem
+    )
+    async throws {
+        self.actorSystem = actorSystem
+        listener = try XPCListener(
+            type: .machService(name: daemonServiceName),
+            codeSigningRequirement: codeSigningRequirement?.requirement,
+        )
+        listener.activatedConnectionHandler = { [weak self] newConnection in
+            guard let self else { return }
             Task {
-                await self.setConnection(connection)
+                await self.setConnection(newConnection)
             }
         }
-        xpc_connection_activate(listener)
+        listener.activate()
     }
-    
-    func setConnection(_ connection: XPCConnection) async
-    {
+
+    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
         if let lastConnection {
-            await lastConnection.close()
+            try? await lastConnection.cancel()
         }
-        self.lastConnection = connection
+        lastConnection = connection
     }
 }

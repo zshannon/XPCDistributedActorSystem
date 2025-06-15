@@ -1,11 +1,9 @@
 import Foundation
 
-public extension Bundle
-{
-    func firstXPCServiceIdentifier() -> String?
-    {
-        let xpcPath = self.bundleURL.appending(components: "Contents", "XPCServices", directoryHint: .isDirectory)
-                
+public extension Bundle {
+    func firstXPCServiceIdentifier() -> String? {
+        let xpcPath = bundleURL.appending(components: "Contents", "XPCServices", directoryHint: .isDirectory)
+
         guard
             let contents = try? FileManager.default.contentsOfDirectory(at: xpcPath, includingPropertiesForKeys: nil),
             let firstXPCService = contents.first(where: { $0.pathExtension == "xpc" }),
@@ -13,7 +11,7 @@ public extension Bundle
         else {
             return nil
         }
-        
+
         return serviceBundle.bundleIdentifier
     }
 }

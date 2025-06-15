@@ -1,18 +1,33 @@
-public struct InvocationResponse<T>: Codable where T: Codable
-{
+import Foundation
+
+public struct InvocationResponse<T>: Codable, Sendable where T: Codable & Sendable {
     var error: String?
     var value: T?
 }
 
-extension InvocationResponse where T == Never
-{
-    public init(error: Swift.Error)
-    {
+public extension InvocationResponse where T == Never {
+    init(error: Swift.Error) {
         self.error = String(describing: error)
     }
 }
 
-extension InvocationResponse where T == Never
-{
-    public init() {}
+public extension InvocationResponse where T == Never {
+    init() {}
+}
+
+public extension InvocationResponse where T == Data {
+    init(error: Swift.Error) {
+        self.error = String(describing: error)
+    }
+}
+
+public extension InvocationResponse where T == Data {
+    init(value: Data) {
+        self.value = value
+    }
+
+    init(error: String?, value: Data?) {
+        self.error = error
+        self.value = value
+    }
 }

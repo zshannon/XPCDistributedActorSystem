@@ -1,7 +1,11 @@
-import XPCDistributedActorSystem
 import Calculator
+import XPCDistributedActorSystem
 
-let system = XPCDistributedActorSystem(mode: .receivingConnections, codeSigningRequirement: try .sameTeam)
-let calculator = Calculator(actorSystem: system)
-let listener = try XPCServiceListener(actorSystem: system)
-listener.run()
+let server = try await XPCDistributedActorServer(
+    xpcService: true,
+    codeSigningRequirement: .sameTeam,
+    actorCreationHandler: { system in
+        // Create a Calculator actor when one isn't found for the given ID
+        Calculator(actorSystem: system)
+    },
+)

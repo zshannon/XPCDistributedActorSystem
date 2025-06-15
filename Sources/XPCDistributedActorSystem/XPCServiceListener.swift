@@ -1,45 +1,34 @@
-@preconcurrency import XPC
+import SwiftyXPC
 
-public actor XPCServiceListener
-{
+public actor XPCServiceListener {
     enum Error: Swift.Error {
         case previousInstanceExists
     }
-    
-    static var shared: XPCServiceListener?
 
     let actorSystem: XPCDistributedActorSystem
-    var lastConnection: XPCConnection? {
-        didSet {
-            actorSystem.setConnection(lastConnection)
-        }
-    }
-    
-    public init(actorSystem: XPCDistributedActorSystem) throws
-    {
-        guard Self.shared == nil else {
-            throw Error.previousInstanceExists
-        }
+    var lastConnection: SwiftyXPC.XPCConnection?
+
+    private let listener: XPCListener
+
+    public init(listener: XPCListener, actorSystem: XPCDistributedActorSystem) async throws {
         self.actorSystem = actorSystem
-        Self.shared = self
-    }
-    
-    public nonisolated func run() -> Never
-    {
-        xpc_main { connection in
-            guard let listener = XPCServiceListener.shared else { return }
+        self.listener = listener
+        listener.activatedConnectionHandler = { [weak self] newConnection in
+            guard let self else { return }
             Task {
-                let connection = XPCConnection(incomingConnection: connection, actorSystem: listener.actorSystem, codeSigningRequirement: listener.actorSystem.codeSigningRequirement)
-                await listener.setConnection(connection)
+                await self.setConnection(newConnection)
             }
         }
     }
-    
-    func setConnection(_ connection: XPCConnection) async
-    {
+
+    public func run() {
+        listener.activate()
+    }
+
+    func setConnection(_ connection: SwiftyXPC.XPCConnection) async {
         if let lastConnection {
-            await lastConnection.close()
+            try? await lastConnection.cancel()
         }
-        self.lastConnection = connection
+        lastConnection = connection
     }
 }

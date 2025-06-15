@@ -1,0 +1,73 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Swift Tests
+    strategy:
+      matrix:
+        os: [macos-15]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.1"
+
+      - name: Debug Environment
+        run: |
+          echo "=== Swift Version ==="
+          swift --version
+          echo "=== Xcode Version ==="
+          xcodebuild -version
+          echo "=== macOS Version ==="
+          sw_vers
+          echo "=== Check macOS 15.0+ Requirement ==="
+          MACOS_VERSION=$(sw_vers -productVersion)
+          MACOS_MAJOR=$(echo $MACOS_VERSION | cut -d. -f1)
+          if [[ $MACOS_MAJOR -lt 15 ]]; then
+            echo "WARNING: This project requires macOS 15.0+, but runner has $MACOS_VERSION"
+            echo "Attempting to build anyway - may need to adjust platform requirements"
+          else
+            echo "macOS version $MACOS_VERSION meets requirements"
+          fi
+          echo "=== Available Swift Toolchains ==="
+          ls -la /Applications/Xcode.app/Contents/Developer/Toolchains/ || echo "No Xcode toolchains found"
+          echo "=== Package Info ==="
+          cat Package.swift
+          echo "=== Resolved Dependencies ==="
+          cat Package.resolved || echo "No Package.resolved found"
+
+      - name: Cache Swift Package Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/.cache/org.swift.swiftpm
+          key: ${{ runner.os }}-swift-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-swift-
+
+      - name: Build
+        env:
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
+        run: |
+          echo "=== Starting Build ==="
+          swift build --verbose
+
+      - name: Run Tests
+        env:
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
+        run: |
+          swift test --verbose --parallel

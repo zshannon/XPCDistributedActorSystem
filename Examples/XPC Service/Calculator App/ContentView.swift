@@ -1,13 +1,12 @@
+import Calculator
 import SwiftUI
 import XPCDistributedActorSystem
-import Calculator
 
-struct ContentView: View
-{
-    @State private var xpc: XPCDistributedActorSystem?
+struct ContentView: View {
+    @State private var xpc: XPCDistributedActorClient?
     @State private var calculator: Calculator? // remote actor in the XPC service
     @State private var output: String = "No calculation done"
-    
+
     var body: some View {
         VStack {
             Button("Calculate") {
@@ -15,8 +14,8 @@ struct ContentView: View
                 output = "Starting XPC service and calculating..."
                 Task {
                     do {
-                        let number1 = Int.random(in: 0..<1000)
-                        let number2 = Int.random(in: 0..<1000)
+                        let number1 = Int.random(in: 0 ..< 1000)
+                        let number2 = Int.random(in: 0 ..< 1000)
                         let result = try await calculator.add(number1, number2)
                         output = "\(number1) + \(number2) = \(result)"
                     } catch {
@@ -41,13 +40,16 @@ struct ContentView: View
             }
             Text(output)
         }
-        .disabled(self.calculator == nil)
+        .disabled(calculator == nil)
         .padding()
-        .onAppear(perform: configureXPCService)
+        .onAppear {
+            Task {
+                await configureXPCService()
+            }
+        }
     }
-    
-    func configureXPCService()
-    {
+
+    func configureXPCService() async {
         guard let serviceIdentifier = Bundle.main.firstXPCServiceIdentifier() else {
             print("Failed to find a valid XPC service in the app's bundle.")
             return
@@ -56,7 +58,7 @@ struct ContentView: View
         print("Found XPC service in bundle:", serviceIdentifier)
 
         let codeSigningRequirement: CodeSigningRequirement
-        
+
         do {
             codeSigningRequirement = try CodeSigningRequirement.sameTeam
         } catch {
@@ -64,15 +66,18 @@ struct ContentView: View
             return
         }
 
-        let xpc = XPCDistributedActorSystem(mode: .connectingToXPCService(serviceName: serviceIdentifier), codeSigningRequirement: codeSigningRequirement)
-        self.xpc = xpc
-        
         do {
-            self.calculator = try Calculator.resolve(id: .init(1), using: xpc)
+            let xpc = try await XPCDistributedActorClient(
+                connectionType: .xpcService(serviceName: serviceIdentifier),
+                codeSigningRequirement: codeSigningRequirement,
+            )
+            self.xpc = xpc
+
+            calculator = try Calculator.resolve(id: .init(), using: xpc)
         } catch {
-            print("Failed to find remote actor:", error.localizedDescription)
+            print("Failed to set up XPC client or resolve remote actor:", error.localizedDescription)
         }
-        
+
         // The XPC service process won't be launched until the first call to the remote actor
     }
 }

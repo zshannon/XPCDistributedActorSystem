@@ -1,8 +1,7 @@
 import ServiceManagement
 
-extension SMAppService.Status
-{
-    var description:String {
+extension SMAppService.Status {
+    var description: String {
         switch self {
         case .notRegistered:
             "not registered"
