@@ -16,7 +16,7 @@ public struct TypedUUID: Codable, Hashable, Sendable {
     }
 
     func matchesType(_ type: some Any) -> Bool {
-        return String(reflecting: type) == self.type
+        String(reflecting: type) == self.type
     }
 }
 
@@ -196,7 +196,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
         where Act: ActorRequirement, ActorID == Act.ID
     {
-        return liveActorStorage.get(id, as: actorType.self)
+        liveActorStorage.get(id, as: actorType.self)
     }
 
     public func assignID<Act>(_ type: Act.Type) -> ActorID
