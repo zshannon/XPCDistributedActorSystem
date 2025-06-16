@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "XPCDistributedActorSystem", targets: ["XPCDistributedActorSystem"]),
     ],
     dependencies: [
+//        .package(url: "https://github.com/apple/swift-distributed-actors", branch: "main"),
         .package(url: "https://github.com/groue/Semaphore", from: "0.1.0"),
         .package(url: "https://github.com/mattmassicotte/Queue", from: "0.2.1"),
         .package(
@@ -24,6 +25,7 @@ let package = Package(
             name: "XPCDistributedActorSystem",
             dependencies: [
                 .product(name: "Dependencies", package: "swift-dependencies"),
+//                .product(name: "DistributedCluster", package: "swift-distributed-actors"),
                 .product(name: "Queue", package: "Queue"),
                 .product(name: "Semaphore", package: "Semaphore"),
                 .product(name: "SwiftyXPC", package: "SwiftyXPC"),
