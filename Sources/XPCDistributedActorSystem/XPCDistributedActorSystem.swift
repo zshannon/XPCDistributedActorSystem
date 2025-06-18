@@ -85,6 +85,17 @@ public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConv
         do {
             var localActor = liveActorStorage.get(request.actorId)
 
+            if localActor == nil, let connection = await receptionist.connectionForId(request.actorId) {
+                let response: InvocationResponse<Data> = try await withDependencies {
+                    $0.distributedActorSystem = self
+                } operation: {
+                    try await connection.sendMessage(
+                        name: "invoke", request: request,
+                    )
+                }
+                return response
+            }
+
             if localActor == nil, let actorCreationHandler {
                 localActor = try await withDependencies {
                     $0.distributedActorSystem = self
@@ -96,15 +107,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConv
                 }
             }
 
-            if localActor == nil {
-//                localActor = try? HelloWorldSayer.resolve(id: request.actorId, using: self)
-//                localActor = await receptionist.xx(id: request.actorId)
-//                print("localActor", localActor, self)
-//                localActor = receptionist.listing(with: "hello") as? any ActorRequirement
-            }
-
             guard let localActor else {
-                print("Failed to find actor for ID \(request.actorId)", self)
                 throw ProtocolError.failedToFindActorForId(request.actorId)
             }
 

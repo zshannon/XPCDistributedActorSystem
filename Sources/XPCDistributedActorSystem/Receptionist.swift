@@ -9,21 +9,6 @@ import Dependencies
 import Distributed
 import SwiftyXPC
 
-distributed actor HelloWorldSayer {
-    typealias ActorSystem = XPCDistributedActorSystem
-
-    let secret: String
-
-    init(secret: String, actorSystem: XPCDistributedActorSystem) {
-        self.secret = secret
-        self.actorSystem = actorSystem
-    }
-
-    distributed func sayHello() -> String {
-        "Hello, world! (\(secret))"
-    }
-}
-
 distributed actor Receptionist {
     typealias ActorSystem = XPCDistributedActorSystem
     typealias Guestable = Codable & DistributedActor
@@ -35,8 +20,7 @@ distributed actor Receptionist {
 
     static let GlobalID: TypedUUID = .init(type: Receptionist.self, uuid: "Receptionist")
 
-    var actors: [ActorSystem.ActorID: SwiftyXPC.XPCConnection] = [:]
-    private var guests: [Key: any Guestable] = [:]
+    private var actors: [ActorSystem.ActorID: SwiftyXPC.XPCConnection] = [:]
 
     static func resolve(actorSystem: ActorSystem) throws -> Receptionist {
         return try resolve(id: GlobalID, using: actorSystem)
@@ -48,22 +32,23 @@ distributed actor Receptionist {
             local.actors[id] = connection
         }
     }
-    
+
     distributed func shutdown() async throws {
         await whenLocal { local in
             @Dependency(\.connection) var connection
-            local.actors.filter({ $0.value == connection }).forEach { id, _ in
+            for (id, _) in local.actors.filter({ $0.value == connection }) {
                 local.actors.removeValue(forKey: id)
             }
         }
     }
-    
+
     distributed func resignID(_ id: ActorSystem.ActorID) async throws {
         await whenLocal { local in
             _ = local.actors.removeValue(forKey: id)
         }
     }
 
+    /// NB: always called "locally" from the actor system host
     nonisolated func connectionFor<Act>(
         _ actor: Act
     ) async -> XPCConnection? where Act: DistributedActor, Act.ID == ActorSystem.ActorID {
@@ -75,28 +60,19 @@ distributed actor Receptionist {
         }
     }
 
-    distributed func checkIn<Guest>(
-        _ guest: Guest,
-        with key: Key
-    ) async where Guest: DistributedActor, Guest: Codable, Guest.ActorSystem == ActorSystem {
-        await whenLocal { local in
-            local.localCheckIn(guest, key: key)
+    /// NB: always called "locally" from the actor system host
+    nonisolated func connectionForId(
+        _ id: ActorSystem.ActorID
+    ) async -> XPCConnection? {
+        try? await whenLocal { local in
+            guard let connection = local.actors[id] else {
+                throw Error.missingConnection
+            }
+            return connection
         }
     }
 
-    distributed func count() -> Int {
-        guests.count
-    }
-
-    nonisolated func listing<Guest>(
-        id: ActorSystem.ActorID
-    ) -> Guest? where Guest: DistributedActor, Guest: Codable, Guest.ActorSystem == ActorSystem {
-        try? Guest.resolve(id: id, using: actorSystem)
-    }
-
-    private func localCheckIn<Guest>(_ guest: Guest, key: Key) where Guest: DistributedActor, Guest: Codable,
-        Guest.ActorSystem == ActorSystem
-    {
-        guests[key] = guest
+    distributed func actorsCount() -> Int {
+        actors.count
     }
 }
