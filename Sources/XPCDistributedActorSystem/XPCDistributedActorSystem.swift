@@ -6,28 +6,16 @@ import Semaphore
 @preconcurrency import SwiftyXPC
 import Synchronization
 
-public struct TypedUUID: Codable, Hashable, Sendable {
-    let type: String
-    let uuid: String
+private let systemId: Mutex<Int> = .init(0)
 
-    init(_ type: (some Any).Type) {
-        self.type = String(reflecting: type)
-        uuid = UUID().uuidString
-    }
-
-    func matchesType(_ type: some Any) -> Bool {
-        String(reflecting: type) == self.type
-    }
-}
-
-public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Sendable {
+public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConvertible, @unchecked Sendable {
     public enum State: Sendable {
         case connecting
         case connected
         case disconnected
     }
 
-    enum ProtocolError: Swift.Error, LocalizedError {
+    enum ProtocolError: Swift.Error, Equatable, LocalizedError {
         case noConnection
         case failedToFindValueInResponse
         case errorFromRemoteActor(String)
@@ -58,17 +46,24 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public typealias SerializationRequirement = Codable
 
     let liveActorStorage = LiveActorStorage()
+    var receptionist: Receptionist!
+    let receptionistQueue: AsyncQueue = .init(attributes: [.concurrent])
     let state: Mutex<State> = .init(.disconnected)
     let actorCreationHandler:
         (@Sendable (XPCDistributedActorSystem) async throws -> (any ActorRequirement)?)?
 
-    // Strong references to actors created via handler to keep them alive
-    let createdActors: Mutex<[ActorID: any ActorRequirement]> = .init([:])
-
-    private let onConnectionCloseCallbacks: Mutex<[SwiftyXPC.XPCConnection: [@Sendable () async -> Void]]> = .init([:])
+    private let onConnectionCloseCallbacks: Mutex<[SwiftyXPC.XPCConnection?: [@Sendable () async -> Void]]> = .init([:])
 
     // Thread-local storage for overriding the next assigned ID
     @TaskLocal static var pendingActorID: ActorID?
+
+    let XPCDistributedActorSystemInstance = systemId.withLock { id in
+        let i = id
+        id += 1
+        return i
+    }
+
+    public var description: String { "XPCDistributedActorSystem#\(XPCDistributedActorSystemInstance)" }
 
     init(
         actorCreationHandler: (
@@ -79,8 +74,9 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     }
 
     let invocations: Mutex<[(UUID, AsyncSemaphore)]> = .init([])
+
     func handleInvocation(request: InvocationRequest) async -> InvocationResponse<Data> {
-        let requestId = UUID()
+        let requestId = request.id
         let cancellationSemaphore: AsyncSemaphore = .init(value: 0)
         invocations.withLock { $0 += [(requestId, cancellationSemaphore)] }
         defer {
@@ -88,6 +84,17 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         }
         do {
             var localActor = liveActorStorage.get(request.actorId)
+
+            if localActor == nil, let connection = await receptionist.connectionForId(request.actorId) {
+                let response: InvocationResponse<Data> = try await withDependencies {
+                    $0.distributedActorSystem = self
+                } operation: {
+                    try await connection.sendMessage(
+                        name: "invoke", request: request,
+                    )
+                }
+                return response
+            }
 
             if localActor == nil, let actorCreationHandler {
                 localActor = try await withDependencies {
@@ -158,15 +165,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
                 _ = liveActorStorage.remove(id)
                 throw ProtocolError.failedToCreateActorForId(id)
             }
-            createdActors.withLock { createdActors in
-                createdActors[id] = actor
-            }
-            await onConnectionClose { [weak self] in
-                guard let self else { return }
-                createdActors.withLock { createdActors in
-                    _ = createdActors.removeValue(forKey: id)
-                }
-            }
         }
 
         return newActor
@@ -182,13 +180,11 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
 
     public func actorReady<Act>(_ actor: Act) where Act: ActorRequirement, ActorID == Act.ID {
         liveActorStorage.add(actor)
+        guard actor.id != Receptionist.GlobalID else { return }
         Task {
-            await onConnectionClose { [weak self, actor] in
+            await onConnectionClose { [weak self, id = actor.id] in
                 guard let self else { return }
-                _ = liveActorStorage.remove(actor.id)
-                createdActors.withLock { createdActors in
-                    _ = createdActors.removeValue(forKey: actor.id)
-                }
+                _ = liveActorStorage.remove(id)
             }
         }
     }
@@ -196,7 +192,8 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
     public func resolve<Act>(id: ActorID, as actorType: Act.Type) throws -> Act?
         where Act: ActorRequirement, ActorID == Act.ID
     {
-        liveActorStorage.get(id, as: actorType.self)
+        if actorType != Receptionist.self {}
+        return liveActorStorage.get(id, as: actorType.self)
     }
 
     public func assignID<Act>(_ type: Act.Type) -> ActorID
@@ -206,14 +203,14 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
         if let pendingID = XPCDistributedActorSystem.pendingActorID {
             return pendingID
         }
-
         return .init(type)
     }
 
     public func resignID(_ id: XPCDistributedActorSystem.ActorID) {
-        _ = liveActorStorage.remove(id)
-        createdActors.withLock {
-            _ = $0.removeValue(forKey: id)
+        receptionistQueue.addOperation { [weak self] in
+            guard let self else { return }
+            _ = liveActorStorage.remove(id)
+            try await receptionist?.resignID(id)
         }
     }
 
@@ -258,8 +255,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
             @Dependency(\.connection) var c
             connection = c
         }
-        assert(connection != nil, "No connection available to monitor for close")
-        guard let connection else { return }
         onConnectionCloseCallbacks.withLock { onConnectionCloseCallbacks in
             onConnectionCloseCallbacks[connection] = onConnectionCloseCallbacks[connection, default: []] + [callback]
         }
@@ -276,8 +271,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, @unchecked Senda
             }
             await group.waitForAll()
         }
-//        let queue = connectionQueue(for: connection)
-//        queue.cancelAllPendingTasks()
     }
 
     func onConnectionQueue<T: Sendable>(
@@ -350,6 +343,7 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
         self.codeSigningRequirement = codeSigningRequirement
         self.connectionType = connectionType
         super.init(actorCreationHandler: actorCreationHandler)
+        receptionist = try .resolve(actorSystem: self)
         try await connect()
     }
 
@@ -374,8 +368,13 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
 
     @XPCActor func shutdown() async throws {
         guard let xpcConnection else { return }
-        try await xpcConnection.cancel()
         connectionQueues.withLock { $0.values.forEach { $0.cancelAllPendingTasks() } }
+        liveActorStorage.actors.withLock { $0.removeAll() }
+        _ = try await receptionistQueue.addBarrierOperation { [weak self] in
+            guard let self else { return }
+            try await receptionist.shutdown()
+        }.value
+        try await xpcConnection.cancel()
     }
 
     @XPCActor private func createConnection() throws -> SwiftyXPC.XPCConnection {
@@ -416,6 +415,7 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             }
             return try await withDependencies {
                 $0.distributedActorSystem = self
+                $0.requestId = request.id
             } operation: {
                 try await self.onConnectionQueue(connection) {
                     await self.handleInvocation(request: request)
@@ -472,7 +472,9 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             $0.dasAsyncStreamCodableSemaphore = semaphore
             $0.distributedActorSystem = self
         } operation: {
-            let result = try JSONDecoder().decode(Res.self, from: valueData)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.actorSystemKey] = self
+            let result = try decoder.decode(Res.self, from: valueData)
             if Res.self is _IsAsyncStreamOfCodable.Type {
                 // this is a hack to support async decoding of AsyncStream<any Codable>
                 try await semaphore.waitUnlessCancelled()
@@ -541,6 +543,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     async throws {
         self.eventHandler = eventHandler
         super.init(actorCreationHandler: actorCreationHandler)
+        receptionist = XPCDistributedActorSystem.$pendingActorID.withValue(Receptionist.GlobalID) {
+            .init(actorSystem: self)
+        }
         try await startListening(listener: listener)
     }
 
@@ -560,6 +565,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
         )
         self.eventHandler = eventHandler
         super.init(actorCreationHandler: actorCreationHandler)
+        receptionist = XPCDistributedActorSystem.$pendingActorID.withValue(Receptionist.GlobalID) {
+            .init(actorSystem: self)
+        }
         try await startListening(listener: listener)
     }
 
@@ -579,6 +587,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
         )
         self.eventHandler = eventHandler
         super.init(actorCreationHandler: actorCreationHandler)
+        receptionist = XPCDistributedActorSystem.$pendingActorID.withValue(Receptionist.GlobalID) {
+            .init(actorSystem: self)
+        }
         try await startListening(listener: listener)
     }
 
@@ -637,6 +648,7 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
             }
             return try await withDependencies {
                 $0.distributedActorSystem = self
+                $0.requestId = request.id
             } operation: {
                 try await self.onConnectionQueue(connection) {
                     await self.handleInvocation(request: request)
@@ -666,7 +678,11 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     )
         async throws -> Res where Act: ActorRequirement, Act.ID == ActorID, Res: Codable
     {
-        @Dependency(\.connection) var xpcConnection
+        @Dependency(\.connection) var _xpcConnection
+        var xpcConnection = _xpcConnection
+        if xpcConnection == nil {
+            xpcConnection = await receptionist.connectionFor(actor)
+        }
         guard let xpcConnection else { throw ProtocolError.noConnection }
 
         let response: InvocationResponse<Data> = try await withDependencies {
@@ -693,7 +709,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
             $0.dasAsyncStreamCodableSemaphore = semaphore
             $0.distributedActorSystem = self
         } operation: {
-            let result = try JSONDecoder().decode(Res.self, from: valueData)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.actorSystemKey] = self
+            let result = try decoder.decode(Res.self, from: valueData)
             if Res.self is _IsAsyncStreamOfCodable.Type {
                 // this is a hack to support async decoding of AsyncStream<any Codable>
                 try await semaphore.waitUnlessCancelled()
@@ -714,8 +732,7 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
     }
 
     enum ShutdownError: Swift.Error {
-        case danglingActiveConnections, danglingCodableAsyncStreams, danglingCreatedActors, danglingInvocations,
-             danglingLiveActors
+        case danglingActiveConnections, danglingCodableAsyncStreams, danglingInvocations, danglingLiveActors
     }
 
     public func wantsShutdown() async throws {
@@ -758,13 +775,8 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
                 }
             }
         }
-        try createdActors.withLock {
-            guard $0.isEmpty else {
-                throw ShutdownError.danglingCreatedActors
-            }
-        }
         try liveActorStorage.actors.withLock {
-            guard $0.isEmpty else {
+            guard $0.filter({ $0.key != Receptionist.GlobalID && $0.value.count > 0 }).isEmpty else {
                 throw ShutdownError.danglingLiveActors
             }
         }
@@ -823,6 +835,34 @@ extension DependencyValues {
         get { self[XPCDistributedActorSystem.self] }
         set { self[XPCDistributedActorSystem.self] = newValue }
     }
+
+    var requestId: UUID? {
+        get { self[UUID.self] }
+        set { self[UUID.self] = newValue }
+    }
 }
 
 extension RemoteCallTarget: @unchecked @retroactive Sendable {}
+extension UUID: @retroactive DependencyKey {
+    public static var liveValue: UUID? { .init() }
+    public static var testValue: UUID? { .init() }
+}
+
+public struct TypedUUID: Codable, Hashable, Sendable {
+    let type: String
+    let uuid: String
+
+    init(_ type: (some Any).Type) {
+        self.type = String(reflecting: type)
+        uuid = UUID().uuidString
+    }
+
+    init(type: (some Any).Type, uuid: String) {
+        self.type = String(reflecting: type)
+        self.uuid = uuid
+    }
+
+    func matchesType(_ type: some Any) -> Bool {
+        String(reflecting: type) == self.type
+    }
+}

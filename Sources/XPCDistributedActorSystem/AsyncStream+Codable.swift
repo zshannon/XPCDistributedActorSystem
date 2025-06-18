@@ -30,8 +30,11 @@ distributed actor CodableAsyncStream<Element> where Element: Codable & Sendable 
     init(stream: AsyncStream<Element>, actorSystem: ActorSystem) {
         self.actorSystem = actorSystem
         iterator = stream.makeAsyncIterator()
-        @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
-        semaphore.signal()
+        Task {
+            try await actorSystem.receptionist.actorReady(id)
+            @Dependency(\.dasAsyncStreamCodableSemaphore) var semaphore
+            semaphore.signal()
+        }
     }
 
     distributed func next() async throws -> Element? {
