@@ -24,7 +24,7 @@ distributed actor Receptionist {
     private var guests: [Key: [ActorSystem.ActorID]] = [:]
 
     static func resolve(actorSystem: ActorSystem) throws -> Receptionist {
-        return try resolve(id: GlobalID, using: actorSystem)
+        try resolve(id: GlobalID, using: actorSystem)
     }
 
     distributed func actorReady(_ id: ActorSystem.ActorID) async throws {
@@ -48,7 +48,7 @@ distributed actor Receptionist {
             await local.removeActorId(id)
         }
     }
-    
+
     private func removeActorId(_ id: ActorSystem.ActorID) async {
         await whenLocal { local in
             _ = local.actors.removeValue(forKey: id)
@@ -123,7 +123,7 @@ distributed actor Receptionist {
     distributed func actorsCount() -> Int {
         actors.count
     }
-    
+
     distributed func guestsCount() -> Int {
         guests.count
     }

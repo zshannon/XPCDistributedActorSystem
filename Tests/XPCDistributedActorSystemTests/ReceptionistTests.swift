@@ -79,7 +79,7 @@ struct ReceptionistTests {
 
                 let guest: HelloWorldSayer? = try? HelloWorldSayer.resolve(
                     id: helloWorldSayer.id,
-                    using: consumingClient
+                    using: consumingClient,
                 )
                 #expect(guest != nil)
                 let response = try await guest!.sayHello()
@@ -130,7 +130,7 @@ struct ReceptionistTests {
 
                 let guest: HelloWorldSayer? = try? HelloWorldSayer.resolve(
                     id: helloWorldSayer.id,
-                    using: consumingClient
+                    using: consumingClient,
                 )
                 #expect(guest != nil)
                 var response: [String] = []
@@ -184,7 +184,7 @@ struct ReceptionistTests {
 
                 let guest: HelloWorldSayer? = try? HelloWorldSayer.resolve(
                     id: helloWorldSayer.id,
-                    using: consumingClient
+                    using: consumingClient,
                 )
                 #expect(guest != nil)
 
@@ -249,7 +249,7 @@ struct ReceptionistTests {
 
                     let guests = try await consumingClient.receptionist.listing(
                         of: HelloWorldSayer.self,
-                        key: key
+                        key: key,
                     )
                     #expect(guests.count == 1)
 

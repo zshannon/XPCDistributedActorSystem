@@ -18,8 +18,7 @@ final class LiveActorStorage: Sendable {
         actors.withLock {
             if let ref = $0[actor.id] {
                 ref.count += 1
-            }
-            else { $0[actor.id] = Reference(to: actor) }
+            } else { $0[actor.id] = Reference(to: actor) }
         }
     }
 

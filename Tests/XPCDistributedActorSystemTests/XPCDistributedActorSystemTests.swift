@@ -566,7 +566,7 @@ struct XPCDistributedActorSystemTests {
 
                     try await client.receptionist.actorReady(localCalculator.id)
                     let remoteCalculator = try Calculator.resolve(
-                        id: localCalculator.id, using: host
+                        id: localCalculator.id, using: host,
                     )
 
                     await #expect(try localCalculator.id == localCalculator.myId())
@@ -586,7 +586,7 @@ struct XPCDistributedActorSystemTests {
                 let count = try await host.receptionist.actorsCount()
                 #expect(
                     count == 0,
-                    "Expected no actors to be registered in the receptionist after shutdown"
+                    "Expected no actors to be registered in the receptionist after shutdown",
                 )
                 try await host.wantsShutdown()
             }
@@ -625,14 +625,14 @@ struct XPCDistributedActorSystemTests {
                     let localCalculator = Calculator(actorSystem: client)
                     try await client.receptionist.actorReady(localCalculator.id)
                     let remoteCalculator = try Calculator.resolve(
-                        id: localCalculator.id, using: host
+                        id: localCalculator.id, using: host,
                     )
 
                     let a: Int = .random(in: 10 ... 100)
                     let b: Int = .random(in: 10 ... 100)
                     let goal = a + b
                     try await confirmation(
-                        "receives all values from addStream", expectedCount: b + 1
+                        "receives all values from addStream", expectedCount: b + 1,
                     ) {
                         confirmAddStream in
                         var result1 = 0
@@ -648,7 +648,7 @@ struct XPCDistributedActorSystemTests {
                 let count = try await host.receptionist.actorsCount()
                 #expect(
                     count == 0,
-                    "Expected no actors to be registered in the receptionist after shutdown"
+                    "Expected no actors to be registered in the receptionist after shutdown",
                 )
                 try await host.wantsShutdown()
             }
@@ -707,7 +707,7 @@ struct XPCDistributedActorSystemTests {
                 let count = try await host.receptionist.actorsCount()
                 #expect(
                     count == 0,
-                    "Expected no actors to be registered in the receptionist after shutdown"
+                    "Expected no actors to be registered in the receptionist after shutdown",
                 )
                 try await host.wantsShutdown()
             }
@@ -878,7 +878,7 @@ struct XPCDistributedActorSystemTests {
                 let count = try await host.receptionist.actorsCount()
                 #expect(
                     count == 0,
-                    "Expected no actors to be registered in the receptionist after shutdown"
+                    "Expected no actors to be registered in the receptionist after shutdown",
                 )
                 try await host.wantsShutdown()
             }
@@ -919,14 +919,13 @@ struct XPCDistributedActorSystemTests {
 
                 // Test that errors from input AsyncThrowingStream are properly propagated
                 try await confirmation("throws error from input stream") { confirmError in
-
                     do {
                         _ = try await remoteCalculator.subtractThrowingStream(
                             .init { c in
                                 c.yield(a)
                                 c.yield(a)
                                 c.finish(throwing: CalculatorError.invalidInput)
-                            }
+                            },
                         )
                     } catch {
                         if error is XPCDistributedActorSystem.ProtocolError {
@@ -940,7 +939,7 @@ struct XPCDistributedActorSystemTests {
                 let count = try await host.receptionist.actorsCount()
                 #expect(
                     count == 0,
-                    "Expected no actors to be registered in the receptionist after shutdown"
+                    "Expected no actors to be registered in the receptionist after shutdown",
                 )
                 try await host.wantsShutdown()
             }
