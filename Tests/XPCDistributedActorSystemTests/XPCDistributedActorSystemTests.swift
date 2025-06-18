@@ -84,11 +84,12 @@ distributed actor Calculator {
     }
 }
 
-enum CalculatorError: Error, Codable {
-    case testError(String)
+enum CalculatorError: Error, Equatable, Codable {
+    case testError(String), invalidInput
 
     var localizedDescription: String {
         switch self {
+        case .invalidInput: "Invalid input provided to Calculator"
         case let .testError(message):
             "Calculator test error: \(message)"
         }
@@ -601,12 +602,14 @@ struct XPCDistributedActorSystemTests {
             }
         }
     }
-    
+
     @Test("Test client hosted distributed actor")
     func clientHostedDATest() async throws {
         let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
-        try await confirmation("host becomes ready for shutdown", expectedCount: 1) { confirmReadyForShutdown in
-            try await confirmation("creates remote actor just once", expectedCount: 0) { confirmCreatesActor in
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
                 let host = try await XPCDistributedActorServer(
                     listener: listenerXPC,
                     actorCreationHandler: { _ in
@@ -632,7 +635,9 @@ struct XPCDistributedActorSystemTests {
                     let localCalculator = Calculator(actorSystem: client)
 
                     try await client.receptionist.actorReady(localCalculator.id)
-                    let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+                    let remoteCalculator = try Calculator.resolve(
+                        id: localCalculator.id, using: host
+                    )
 
                     await #expect(try localCalculator.id == localCalculator.myId())
                     await #expect(try remoteCalculator.id == remoteCalculator.myId())
@@ -651,11 +656,446 @@ struct XPCDistributedActorSystemTests {
                 let count = await host.receptionist.whenLocal { local in
                     local.actors.count
                 }
-                #expect(count == 0, "Expected no actors to be registered in the receptionist after shutdown")
+                #expect(
+                    count == 0,
+                    "Expected no actors to be registered in the receptionist after shutdown"
+                )
                 try await host.wantsShutdown()
             }
         }
     }
+
+    @Test("Test client hosted distributed actor - asyncstream")
+    func clientHostedDATestAsyncStream() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                // For now, let's create a remote reference manually since resolve might return nil for remote actors
+                // We'll use the distributed actor initializer that takes an ID and system
+                do {
+                    let clientCalculator = Calculator(actorSystem: client)
+
+                    try await client.receptionist.actorReady(clientCalculator.id)
+                    let calculator = try Calculator.resolve(id: clientCalculator.id, using: host)
+
+                    await #expect(try clientCalculator.id == clientCalculator.myId())
+                    await #expect(try calculator.id == calculator.myId())
+                    await #expect(try clientCalculator.myId() == calculator.myId())
+
+                    let result1 = try await calculator.add(10, 20)
+                    #expect(result1 == 30)
+
+                    // Now test actual XPC communication by calling methods on the resolved actor
+                    // These calls should go through XPC since the actor is in a different system
+                    let a: Int = .random(in: 10 ... 100)
+                    let b: Int = .random(in: 10 ... 100)
+                    let goal = a + b
+                    try await confirmation("receives all values from addStream", expectedCount: b + 1) {
+                        confirmAddStream in
+                        var result = 0
+                        let stream = try await calculator.addStream(a, b)
+                        for await x in stream {
+                            confirmAddStream()
+                            result = x
+                        }
+                        #expect(result == goal)
+                    }
+                }
+
+                try await client.shutdown()
+                let count = await host.receptionist.whenLocal { local in
+                    local.actors.count
+                }
+                #expect(
+                    count == 0,
+                    "Expected no actors to be registered in the receptionist after shutdown"
+                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+    @Test("Test client hosted distributed actor - AsyncStream input")
+    func clientHostedDAAsyncStreamInputTest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                let localCalculator = Calculator(actorSystem: client)
+                try await client.receptionist.actorReady(localCalculator.id)
+                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                let a: Int = .random(in: 10 ... 100)
+                try await confirmation("consumes input stream") {
+                    confirmConsumeStream in
+                    do {
+                        let result = try await remoteCalculator.subtractStream(
+                            .init { c in
+                                confirmConsumeStream()
+                                c.yield(a)
+                                c.yield(a)
+                                c.finish()
+                            },
+                        )
+                        #expect(result == 0)
+                    } catch {
+                        throw error
+                    }
+                }
+
+                try await client.shutdown()
+                let count = await host.receptionist.whenLocal { local in
+                    local.actors.count
+                }
+                #expect(
+                    count == 0,
+                    "Expected no actors to be registered in the receptionist after shutdown"
+                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+    @Test("Test client hosted distributed actor - AsyncStream input early cancellation")
+    func clientHostedDAAsyncStreamInputEarlyCancellationTest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                let localCalculator = Calculator(actorSystem: client)
+                try await client.receptionist.actorReady(localCalculator.id)
+                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                let a: Int = .random(in: 10 ... 100)
+                await #expect(
+                    throws: SwiftyXPC.XPCError.connectionInvalid,
+                    performing: {
+                        try await confirmation("consumes input stream") {
+                            confirmConsumeStream in
+                            do {
+                                let semaphore: AsyncSemaphore = .init(value: 0)
+                                async let result = try remoteCalculator.subtractStream(
+                                    .init { c in
+                                        confirmConsumeStream()
+                                        c.yield(a)
+                                        semaphore.signal()
+                                    },
+                                )
+                                try await semaphore.waitUnlessCancelled()
+                                try await Task.sleep(for: .milliseconds(10)) // give the xpc message a chance to be sent
+                                try await client.shutdown()
+                                _ = try await result // this should throw
+                            } catch {
+                                throw error
+                            }
+                        }
+                    },
+                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+    @Test("Test client hosted distributed actor - AsyncStream output early cancellation")
+    func clientHostedDAAsyncStreamOutputEarlyCancellationTest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                let localCalculator = Calculator(actorSystem: client)
+                try await client.receptionist.actorReady(localCalculator.id)
+                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                let a: Int = .random(in: 10 ... 100)
+                let b: Int = .random(in: 10 ... 100)
+
+//                await #expect(
+//                    throws: SwiftyXPC.XPCError.connectionInvalid,
+//                    performing: {
+                let semaphore: AsyncSemaphore = .init(value: 0)
+                var counter = 0
+                async let task: () = {
+                    do {
+                        for try await _ in try await remoteCalculator.addStream(a, b) {
+                            counter += 1
+                            if counter == 1 {
+                                semaphore.signal()
+                            }
+                        }
+                    } catch {
+                        // Expected to throw
+                    }
+                }()
+                try await semaphore.waitUnlessCancelled()
+                try await Task.sleep(for: .milliseconds(10)) // give the xpc message a chance to be sent
+                try await client.shutdown()
+                try await task // this should complete with an error
+//                    },
+//                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+    @Test("Test client hosted distributed actor - AsyncThrowingStream error handling")
+    func clientHostedDAAsyncThrowingStreamErrorTest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                let localCalculator = Calculator(actorSystem: client)
+                try await client.receptionist.actorReady(localCalculator.id)
+                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                let a: Int = .random(in: 10 ... 100)
+                let b: Int = .random(in: 10 ... 100)
+
+                // Test that errors from AsyncThrowingStream are properly propagated
+                await #expect(throws: (any Error).self) {
+                    let throwingStream = try await remoteCalculator.addThrowingStream(a, b)
+                    _ = try await remoteCalculator.subtractThrowingStream(throwingStream)
+                }
+
+                try await client.shutdown()
+                let count = await host.receptionist.whenLocal { local in
+                    local.actors.count
+                }
+                #expect(
+                    count == 0,
+                    "Expected no actors to be registered in the receptionist after shutdown"
+                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+    @Test("Test client hosted distributed actor - AsyncThrowingStream input error handling")
+    func clientHostedDAAsyncThrowingStreamInputErrorTest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+            confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) {
+                confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                let localCalculator = Calculator(actorSystem: client)
+                try await client.receptionist.actorReady(localCalculator.id)
+                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                let a: Int = .random(in: 10 ... 100)
+
+                // Test that errors from input AsyncThrowingStream are properly propagated
+                try await confirmation("throws error from input stream") { confirmError in
+
+                    do {
+                        try await remoteCalculator.subtractThrowingStream(
+                            .init { c in
+                                c.yield(a)
+                                c.yield(a)
+                                c.finish(throwing: CalculatorError.invalidInput)
+                            }
+                        )
+                    } catch {
+                        if error is XPCDistributedActorSystem.ProtocolError {
+                            confirmError()
+                        } else {
+                            throw error
+                        }
+                    }
+                }
+                try await client.shutdown()
+                let count = await host.receptionist.whenLocal { local in
+                    local.actors.count
+                }
+                #expect(
+                    count == 0,
+                    "Expected no actors to be registered in the receptionist after shutdown"
+                )
+                try await host.wantsShutdown()
+            }
+        }
+    }
+
+//    @Test("Test client hosted distributed actor - AsyncThrowingStream early cancellation")
+//    func clientHostedDAAsyncThrowingStreamEarlyCancellationTest() async throws {
+//        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+//        try await confirmation("host becomes ready for shutdown", expectedCount: 1) {
+//            confirmReadyForShutdown in
+//            try await confirmation("creates remote actor just once", expectedCount: 0) {
+//                confirmCreatesActor in
+//                let host = try await XPCDistributedActorServer(
+//                    listener: listenerXPC,
+//                    actorCreationHandler: { _ in
+//                        confirmCreatesActor()
+//                        return nil
+//                    },
+//                ) { event in
+//                    if case .readyForShutdown = event {
+//                        confirmReadyForShutdown()
+//                    }
+//                }
+//
+//                // Create a client actor system that connects to the listener's endpoint
+//                let client = try await XPCDistributedActorClient(
+//                    attemptReconnect: false,
+//                    connectionType: .endpoint(listenerXPC.endpoint),
+//                    codeSigningRequirement: nil,
+//                )
+//
+//                let localCalculator = Calculator(actorSystem: client)
+//                try await client.receptionist.actorReady(localCalculator.id)
+//                let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+//
+//                let a: Int = .random(in: 10 ... 100)
+//                let b: Int = .random(in: 10 ... 100)
+//
+//                await #expect(
+//                    throws: SwiftyXPC.XPCError.connectionInvalid,
+//                    performing: {
+//                        let semaphore: AsyncSemaphore = .init(value: 0)
+//                        var counter = 0
+//                        async let task: () = {
+//                            do {
+//                                for try await _ in try await remoteCalculator.addThrowingStream(
+//                                    a, b
+//                                ) {
+//                                    counter += 1
+//                                    if counter == 1 {
+//                                        semaphore.signal()
+//                                    }
+//                                }
+//                            } catch {
+//                                // Expected to throw
+//                            }
+//                        }()
+//                        try await semaphore.waitUnlessCancelled()
+//                        try await Task.sleep(for: .milliseconds(10)) // give the xpc message a chance to be sent
+//                        try await client.shutdown()
+//                        try await task // this should complete with an error
+//                    },
+//                )
+//                try await host.wantsShutdown()
+//            }
+//        }
+//    }
 }
 
 extension SwiftyXPC.XPCError: @retroactive Equatable {

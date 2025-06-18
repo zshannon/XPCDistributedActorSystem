@@ -49,6 +49,15 @@ distributed actor Receptionist {
         }
     }
     
+    distributed func shutdown() async throws {
+        await whenLocal { local in
+            @Dependency(\.connection) var connection
+            local.actors.filter({ $0.value == connection }).forEach { id, _ in
+                local.actors.removeValue(forKey: id)
+            }
+        }
+    }
+    
     distributed func resignID(_ id: ActorSystem.ActorID) async throws {
         await whenLocal { local in
             _ = local.actors.removeValue(forKey: id)

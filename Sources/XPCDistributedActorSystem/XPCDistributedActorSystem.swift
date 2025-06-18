@@ -15,7 +15,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConv
         case disconnected
     }
 
-    enum ProtocolError: Swift.Error, LocalizedError {
+    enum ProtocolError: Swift.Error, Equatable, LocalizedError {
         case noConnection
         case failedToFindValueInResponse
         case errorFromRemoteActor(String)
@@ -52,7 +52,7 @@ public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConv
     let actorCreationHandler:
         (@Sendable (XPCDistributedActorSystem) async throws -> (any ActorRequirement)?)?
 
-    private let onConnectionCloseCallbacks: Mutex<[SwiftyXPC.XPCConnection: [@Sendable () async -> Void]]> = .init([:])
+    private let onConnectionCloseCallbacks: Mutex<[SwiftyXPC.XPCConnection?: [@Sendable () async -> Void]]> = .init([:])
 
     // Thread-local storage for overriding the next assigned ID
     @TaskLocal static var pendingActorID: ActorID?
@@ -252,8 +252,6 @@ public class XPCDistributedActorSystem: DistributedActorSystem, CustomStringConv
             @Dependency(\.connection) var c
             connection = c
         }
-        assert(connection != nil, "No connection available to monitor for close")
-        guard let connection else { return }
         onConnectionCloseCallbacks.withLock { onConnectionCloseCallbacks in
             onConnectionCloseCallbacks[connection] = onConnectionCloseCallbacks[connection, default: []] + [callback]
         }
@@ -369,7 +367,10 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
         guard let xpcConnection else { return }
         connectionQueues.withLock { $0.values.forEach { $0.cancelAllPendingTasks() } }
         liveActorStorage.actors.withLock { $0.removeAll() }
-        _ = await receptionistQueue.addBarrierOperation {}.value
+        _ = try await receptionistQueue.addBarrierOperation { [weak self] in
+            guard let self else { return }
+            try await receptionist.shutdown()
+        }.value
         try await xpcConnection.cancel()
     }
 
@@ -468,7 +469,9 @@ public final class XPCDistributedActorClient: XPCDistributedActorSystem, @unchec
             $0.dasAsyncStreamCodableSemaphore = semaphore
             $0.distributedActorSystem = self
         } operation: {
-            let result = try JSONDecoder().decode(Res.self, from: valueData)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.actorSystemKey] = self
+            let result = try decoder.decode(Res.self, from: valueData)
             if Res.self is _IsAsyncStreamOfCodable.Type {
                 // this is a hack to support async decoding of AsyncStream<any Codable>
                 try await semaphore.waitUnlessCancelled()
@@ -703,7 +706,9 @@ public final class XPCDistributedActorServer: XPCDistributedActorSystem, @unchec
             $0.dasAsyncStreamCodableSemaphore = semaphore
             $0.distributedActorSystem = self
         } operation: {
-            let result = try JSONDecoder().decode(Res.self, from: valueData)
+            let decoder = JSONDecoder()
+            decoder.userInfo[.actorSystemKey] = self
+            let result = try decoder.decode(Res.self, from: valueData)
             if Res.self is _IsAsyncStreamOfCodable.Type {
                 // this is a hack to support async decoding of AsyncStream<any Codable>
                 try await semaphore.waitUnlessCancelled()
