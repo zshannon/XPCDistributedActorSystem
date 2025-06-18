@@ -601,6 +601,61 @@ struct XPCDistributedActorSystemTests {
             }
         }
     }
+    
+    @Test("Test client hosted distributed actor")
+    func clientHostedDATest() async throws {
+        let listenerXPC = try SwiftyXPC.XPCListener(type: .anonymous, codeSigningRequirement: nil)
+        try await confirmation("host becomes ready for shutdown", expectedCount: 1) { confirmReadyForShutdown in
+            try await confirmation("creates remote actor just once", expectedCount: 0) { confirmCreatesActor in
+                let host = try await XPCDistributedActorServer(
+                    listener: listenerXPC,
+                    actorCreationHandler: { _ in
+                        confirmCreatesActor()
+                        return nil
+                    },
+                ) { event in
+                    if case .readyForShutdown = event {
+                        confirmReadyForShutdown()
+                    }
+                }
+
+                // Create a client actor system that connects to the listener's endpoint
+                let client = try await XPCDistributedActorClient(
+                    attemptReconnect: false,
+                    connectionType: .endpoint(listenerXPC.endpoint),
+                    codeSigningRequirement: nil,
+                )
+
+                // For now, let's create a remote reference manually since resolve might return nil for remote actors
+                // We'll use the distributed actor initializer that takes an ID and system
+                do {
+                    let localCalculator = Calculator(actorSystem: client)
+
+                    try await client.receptionist.actorReady(localCalculator.id)
+                    let remoteCalculator = try Calculator.resolve(id: localCalculator.id, using: host)
+
+                    await #expect(try localCalculator.id == localCalculator.myId())
+                    await #expect(try remoteCalculator.id == remoteCalculator.myId())
+                    await #expect(try localCalculator.myId() == remoteCalculator.myId())
+
+                    let result1 = try await localCalculator.add(10, 20)
+                    #expect(result1 == 30)
+
+                    // Now test actual XPC communication by calling methods on the resolved actor
+                    // These calls should go through XPC since the actor is in a different system
+                    let result2 = try await remoteCalculator.multiply(5, 6)
+                    #expect(result2 == 30)
+                }
+
+                try await client.shutdown()
+                let count = await host.receptionist.whenLocal { local in
+                    local.actors.count
+                }
+                #expect(count == 0, "Expected no actors to be registered in the receptionist after shutdown")
+                try await host.wantsShutdown()
+            }
+        }
+    }
 }
 
 extension SwiftyXPC.XPCError: @retroactive Equatable {
